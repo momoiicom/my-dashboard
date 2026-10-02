@@ -240,7 +240,7 @@ export function Dashboard({ initialCards, name, image }: {
                 {isEditing && <CardFooter className="dashboard-card-footer">Drag the top edge · Resize from the corner</CardFooter>}
               </Card>
               {isEditing && <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-                <span className="rounded-md bg-slate-950/90 px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-white shadow-lg ring-1 ring-white/20" aria-label={`${resizePreview?.id === card.id ? resizePreview.width : card.width} pixels wide by ${resizePreview?.id === card.id ? resizePreview.height : card.height} pixels high`}>
+                <span role="status" aria-live="polite" aria-atomic="true" className="rounded-md bg-slate-950/90 px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-white shadow-lg ring-1 ring-white/20" aria-label={`${resizePreview?.id === card.id ? resizePreview.width : card.width} pixels wide by ${resizePreview?.id === card.id ? resizePreview.height : card.height} pixels high`}>
                   {resizePreview?.id === card.id ? resizePreview.width : card.width}x{resizePreview?.id === card.id ? resizePreview.height : card.height}
                 </span>
               </div>}
