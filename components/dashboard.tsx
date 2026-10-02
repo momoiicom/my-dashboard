@@ -16,6 +16,7 @@ import type { CardInput, CardRecord } from "@/lib/dashboard-card"
 type SaveState = "saved" | "saving" | "error"
 type LayoutMode = "view" | "edit"
 type CardChanges = Partial<CardInput> | ((card: CardRecord) => Partial<CardInput>)
+type ResizePreview = { id: string, width: number, height: number }
 const GRID_SIZE = 20
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -34,6 +35,7 @@ export function Dashboard({ initialCards, name, image }: {
   const isEditing = mode === "edit"
   const [saveState, setSaveState] = useState<SaveState>("saved")
   const [error, setError] = useState("")
+  const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null)
   const busy = useRef(false)
   const pendingActions = useRef<Array<() => void>>([])
   const idleWaiters = useRef<Array<() => void>>([])
@@ -193,10 +195,16 @@ export function Dashboard({ initialCards, name, image }: {
                 x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
                 width: snap(card.width, 240, 1600), height: snap(card.height, 160, 1200),
               })}
-              onResizeStop={(_event, _direction, ref, _delta, position) => void patchCard(card.id, {
-                x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
-                width: snap(ref.offsetWidth, 240, 1600), height: snap(ref.offsetHeight, 160, 1200),
+              onResize={(_event, _direction, ref) => setResizePreview({
+                id: card.id, width: ref.offsetWidth, height: ref.offsetHeight,
               })}
+              onResizeStop={(_event, _direction, ref, _delta, position) => {
+                setResizePreview(null)
+                void patchCard(card.id, {
+                  x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
+                  width: snap(ref.offsetWidth, 240, 1600), height: snap(ref.offsetHeight, 160, 1200),
+                })
+              }}
             >
               <Card className={cn("dashboard-card-inner", !isEditing && "dashboard-card-view")} size="sm">
                 {isEditing && <CardHeader className="dashboard-card-head">
@@ -231,6 +239,11 @@ export function Dashboard({ initialCards, name, image }: {
                   }} /> : <h2 className="dashboard-card-title">{card.title}</h2>}</CardContent>
                 {isEditing && <CardFooter className="dashboard-card-footer">Drag the top edge · Resize from the corner</CardFooter>}
               </Card>
+              {isEditing && <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+                <span className="rounded-md bg-slate-950/90 px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-white shadow-lg ring-1 ring-white/20" aria-label={`${resizePreview?.id === card.id ? resizePreview.width : card.width} pixels wide by ${resizePreview?.id === card.id ? resizePreview.height : card.height} pixels high`}>
+                  {resizePreview?.id === card.id ? resizePreview.width : card.width}x{resizePreview?.id === card.id ? resizePreview.height : card.height}
+                </span>
+              </div>}
             </Rnd>
           ))}
         </div>
