@@ -30,16 +30,20 @@ export function Dashboard({ initialCards, name, image }: {
 }) {
   const [cards, setCards] = useState(initialCards)
   const [mode, setMode] = useState<LayoutMode>("view")
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const isEditing = mode === "edit"
   const [saveState, setSaveState] = useState<SaveState>("saved")
   const [error, setError] = useState("")
   const busy = useRef(false)
   const pendingActions = useRef<Array<() => void>>([])
+  const idleWaiters = useRef<Array<() => void>>([])
   const cardsRef = useRef(cards)
 
   const finishMutation = () => {
     busy.current = false
-    pendingActions.current.shift()?.()
+    const next = pendingActions.current.shift()
+    if (next) next()
+    else idleWaiters.current.splice(0).forEach((resolve) => resolve())
   }
 
   const updateCards = (next: CardRecord[]) => {
@@ -62,10 +66,16 @@ export function Dashboard({ initialCards, name, image }: {
       pendingActions.current.push(() => void addCard())
       return
     }
+    const nextY = Math.max(GRID_SIZE, ...cardsRef.current.map((item) => item.y + item.height + GRID_SIZE))
+    if (nextY > 10000) {
+      setSaveState("error")
+      setError("This layout has reached its lower limit. Move a card higher before adding another.")
+      finishMutation()
+      return
+    }
     busy.current = true
     setSaveState("saving")
     setError("")
-    const nextY = Math.max(GRID_SIZE, ...cardsRef.current.map((item) => item.y + item.height + GRID_SIZE))
     const card: CardInput = { title: "Untitled card", x: GRID_SIZE, y: snap(nextY, 0, 10000), width: 320, height: 220 }
     try {
       const result = await mutate("/api/cards", "POST", card) as { card: CardRecord }
@@ -142,7 +152,13 @@ export function Dashboard({ initialCards, name, image }: {
         <div className="dashboard-account">
           <Avatar size="sm" className="dashboard-avatar">{image && <AvatarImage src={image} alt="" referrerPolicy="no-referrer" />}<AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback></Avatar>
           <span className="dashboard-account-name">{name}</span>
-          <SignOutButton />
+          <SignOutButton onPendingChange={setIsSigningOut} beforeSignOut={() => {
+            setMode("view")
+            return new Promise<void>((resolve) => {
+              if (!busy.current && pendingActions.current.length === 0) resolve()
+              else idleWaiters.current.push(resolve)
+            })
+          }} />
         </div>
       </header>
       <div className="dashboard-toolbar">
@@ -150,7 +166,7 @@ export function Dashboard({ initialCards, name, image }: {
         <div className="dashboard-toolbar-actions">
           <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
           {isEditing && <Button size="sm" onClick={() => void addCard()}>+ Add card</Button>}
-          <Button size="sm" variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
+          <Button size="sm" disabled={isSigningOut} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
         </div>
       </div>
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
