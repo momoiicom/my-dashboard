@@ -18,6 +18,17 @@ export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
   pages: { signIn: "/login" },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user?.id) token.sub = user.id
+      return token
+    },
+    async session({ session, token }) {
+      if (session.user && typeof token.sub === "string" && token.sub.trim())
+        session.user.id = token.sub
+      return session
+    },
+  },
   providers: googleConfigured
     ? [
         GoogleProvider({
@@ -32,6 +43,6 @@ export async function requireSession() {
   if (!process.env.NEXTAUTH_SECRET || !process.env.DATABASE_URL)
     redirect("/login")
   const session = await getServerSession(authOptions)
-  if (!session) redirect("/login")
+  if (!session?.user?.id?.trim()) redirect("/login")
   return session
 }

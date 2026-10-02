@@ -1,6 +1,6 @@
 # My dashboard
 
-A bare private Next.js site. Google sign-in creates a user and OAuth account in SQLite. Every page and API path requires a signed session, except the login page, NextAuth routes, and framework assets.
+A private Next.js dashboard. Google sign-in creates a user and OAuth account in SQLite. Signed-in users can add, title, drag, resize, and remove their own cards. Card positions and sizes persist in SQLite. Every page and API path requires a signed session, except the login page, NextAuth routes, and framework assets.
 
 ## Run locally
 
@@ -16,8 +16,10 @@ Until the Google credentials are set, `/login` shows a disabled sign-in button. 
 
 ## Check the app
 
-Run `npm run lint`, `npm run typecheck`, and `npm run build`. Then run `npm run test:smoke`. The smoke script creates a temporary SQLite database, applies the checked-in migration, tests the Prisma adapter's user and Google account writes, and starts the production server to check anonymous redirects, rejected forged cookies, auth route access, and signed-session rendering. It removes its test records and database afterward. The signed test session is local verification; it does not replace a Google OAuth callback test.
+Run `npm run lint`, `npm run typecheck`, and `npm run build`. Then run `npm run test:smoke`. The smoke script creates a temporary SQLite database, applies the checked-in migrations, tests the Prisma adapter's user and Google account writes, and starts the production server to check anonymous redirects, rejected forged cookies, auth route access, signed-session rendering, card CRUD, persisted geometry, cross-user isolation, and input and origin guards. It removes its test records and database afterward. The signed test session is local verification; it does not replace a Google OAuth callback test.
 
-The UI components come from [shadcn/ui](https://ui.shadcn.com/). Add more with `npx shadcn@latest add <component>`.
+The UI components come from [shadcn/ui](https://ui.shadcn.com/). Cards use free-positioned [react-rnd](https://github.com/bokuweb/react-rnd). Drag the card header or resize from its lower-right corner. For keyboard use, focus the header and press arrow keys to move, Shift+arrow keys to resize, and Alt with either for 1px steps. The canvas scrolls to reach saved cards on smaller screens. Add more UI components with `npx shadcn@latest add <component>`.
+
+On an existing installation, run `npm run db:deploy` before starting the updated app. Card records belong to the Google user ID. Card mutation requests use JSON and a matching Origin header.
 
 The package overrides pin patched `deepmerge-ts` and `mysql2` versions used by the Prisma CLI. Check whether these overrides are still needed when upgrading Prisma.

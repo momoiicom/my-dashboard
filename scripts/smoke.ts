@@ -35,6 +35,12 @@ const user = await adapter.createUser!({
   emailVerified: null,
   image: null,
 })
+const other = await adapter.createUser!({
+  name: "Other User",
+  email: `other-${randomUUID()}@example.test`,
+  emailVerified: null,
+  image: null,
+})
 
 try {
   await adapter.linkAccount!({
@@ -128,8 +134,43 @@ try {
     const authenticated = await get("/", cookie)
     assert.equal(authenticated.status, 200)
     const html = await authenticated.text()
-    assert(html.includes(email), "Signed-in page must render the account email")
+    assert(html.includes("Smoke User"), "Signed-in page must render the account name")
     assert.equal((await get("/login", cookie)).status, 307)
+
+    const otherToken = await encode({
+      token: { sub: other.id, name: other.name, email: other.email },
+      secret: process.env.NEXTAUTH_SECRET!,
+    })
+    const otherCookie = `next-auth.session-token=${otherToken}`
+    const api = (path: string, method: string, body?: unknown, authCookie = cookie, origin = base) =>
+      fetch(`${base}${path}`, {
+        method,
+        headers: { cookie: authCookie, origin, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    assert.equal((await get("/api/cards")).status, 401)
+    assert.equal((await api("/api/cards", "POST", { title: "x", x: 1, y: 1, width: 320, height: 220 }, "")).status, 401)
+    assert.equal((await api("/api/cards", "POST", { title: "x", x: 1, y: 1, width: 320, height: 220 }, cookie, "https://evil.example")).status, 403)
+    assert.equal((await api("/api/cards", "POST", { title: " ", x: 1, y: 1, width: 320, height: 220 })).status, 400)
+    assert.equal((await api("/api/cards", "POST", { title: "bad", x: -1, y: 1, width: 320, height: 220 })).status, 400)
+    assert.equal((await api("/api/cards", "POST", { title: "bad", x: 1.5, y: 1, width: 320, height: 220 })).status, 400)
+    assert.equal((await api("/api/cards", "POST", { title: "bad", x: 1, y: 1, width: 320, height: 220, ownerId: other.id })).status, 400)
+    const created = await api("/api/cards", "POST", { title: "Test card", x: 12, y: 24, width: 320, height: 220 })
+    assert.equal(created.status, 201)
+    const card = (await created.json()).card as { id: string }
+    assert.equal((await get("/api/cards", otherCookie)).status, 200)
+    assert.equal(((await (await get("/api/cards", otherCookie)).json()).cards as unknown[]).length, 0)
+    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { title: "Stolen" }, otherCookie)).status, 404)
+    assert.equal((await api(`/api/cards/${card.id}`, "DELETE", undefined, otherCookie)).status, 404)
+    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { width: 239 })).status, 400)
+    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { ownerId: other.id })).status, 400)
+    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { x: 144, y: 256, width: 420, height: 300 })).status, 200)
+    const persisted = (await (await get("/api/cards", cookie)).json()).cards as Array<{ id: string, x: number, y: number, width: number, height: number }>
+    assert.deepEqual(persisted.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })), [{ id: card.id, x: 144, y: 256, width: 420, height: 300 }])
+    assert((await (await get("/", cookie)).text()).includes("Test card"), "Saved card must render on reload")
+    assert.equal((await api(`/api/cards/${card.id}`, "DELETE")).status, 200)
+    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { title: "Gone" })).status, 404)
+    assert.equal(((await (await get("/api/cards", cookie)).json()).cards as unknown[]).length, 0)
 
     const tampered = `${token[0] === "x" ? "y" : "x"}${token.slice(1)}`
     assert.equal(
@@ -202,10 +243,11 @@ try {
     }
   }
   console.log(
-    "Smoke passed: SQLite account persistence, anonymous gate, invalid tokens, authenticated render, missing-secret fail-closed"
+    "Smoke passed: SQLite auth, card CRUD and geometry, owner isolation, origin and input guards, anonymous gate"
   )
 } finally {
   await prisma.user.delete({ where: { id: user.id } })
+  await prisma.user.delete({ where: { id: other.id } })
   await prisma.$disconnect()
   await rm(temporaryDirectory, { recursive: true, force: true })
 }

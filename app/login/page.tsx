@@ -14,7 +14,7 @@ import { authOptions } from "@/lib/auth"
 export default async function LoginPage() {
   if (process.env.NEXTAUTH_SECRET && process.env.DATABASE_URL) {
     const session = await getServerSession(authOptions)
-    if (session) redirect("/")
+    if (session?.user?.id?.trim()) redirect("/")
   }
 
   const configured = Boolean(
@@ -25,7 +25,7 @@ export default async function LoginPage() {
   )
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-muted/30 p-6">
+    <main className="login-shell flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
