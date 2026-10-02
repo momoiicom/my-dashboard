@@ -27,7 +27,13 @@ export function Dashboard({ initialCards, name, image }: {
   const [saveState, setSaveState] = useState<SaveState>("saved")
   const [error, setError] = useState("")
   const busy = useRef(false)
+  const pendingActions = useRef<Array<() => void>>([])
   const cardsRef = useRef(cards)
+
+  const finishMutation = () => {
+    busy.current = false
+    pendingActions.current.shift()?.()
+  }
 
   const updateCards = (next: CardRecord[]) => {
     cardsRef.current = next
@@ -45,7 +51,10 @@ export function Dashboard({ initialCards, name, image }: {
   }
 
   async function addCard() {
-    if (busy.current) return
+    if (busy.current) {
+      pendingActions.current.push(() => void addCard())
+      return
+    }
     busy.current = true
     setSaveState("saving")
     setError("")
@@ -59,7 +68,7 @@ export function Dashboard({ initialCards, name, image }: {
       setSaveState("error")
       setError(cause instanceof Error ? cause.message : "Could not add card.")
     } finally {
-      busy.current = false
+      finishMutation()
     }
   }
 
@@ -80,12 +89,15 @@ export function Dashboard({ initialCards, name, image }: {
       setSaveState("error")
       setError(cause instanceof Error ? cause.message : "Could not save card.")
     } finally {
-      busy.current = false
+      finishMutation()
     }
   }
 
   async function removeCard(id: string) {
-    if (busy.current) return
+    if (busy.current) {
+      pendingActions.current.push(() => void removeCard(id))
+      return
+    }
     busy.current = true
     setSaveState("saving")
     setError("")
@@ -97,7 +109,7 @@ export function Dashboard({ initialCards, name, image }: {
       setSaveState("error")
       setError(cause instanceof Error ? cause.message : "Could not remove card.")
     } finally {
-      busy.current = false
+      finishMutation()
     }
   }
 
@@ -118,7 +130,7 @@ export function Dashboard({ initialCards, name, image }: {
         <div className="dashboard-toolbar-title"><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">Private</Badge></div>
         <div className="dashboard-toolbar-actions">
           <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
-          <Button size="sm" disabled={saveState === "saving"} onClick={() => void addCard()}>+ Add card</Button>
+          <Button size="sm" onClick={() => void addCard()}>+ Add card</Button>
         </div>
       </div>
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -168,7 +180,7 @@ export function Dashboard({ initialCards, name, image }: {
                     }}>
                     <span className="dashboard-grip" aria-hidden="true">⠿</span><span className="dashboard-card-label">Card</span>
                   </div>
-                  <Button variant="ghost" size="icon-xs" disabled={saveState === "saving"} aria-label={`Remove ${card.title || "untitled card"}`} title="Remove card" onClick={() => void removeCard(card.id)}>×</Button>
+                  <Button variant="ghost" size="icon-xs" aria-label={`Remove ${card.title || "untitled card"}`} title="Remove card" onClick={() => void removeCard(card.id)}>×</Button>
                 </CardHeader>
                 <CardContent className="dashboard-card-content"><Input key={`${card.id}-${card.title}`} defaultValue={card.title} placeholder="Untitled card" aria-label="Card title" maxLength={120} className="dashboard-card-title" disabled={saveState === "saving"}
                   onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }}
