@@ -108,11 +108,14 @@ body { min-height: 100svh; }
 .dashboard-private { padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,.08); color: #b6c2cf; font-size: 12px; }
 .dashboard-toolbar .group\/button { border-radius: 4px; background: #0c66e4; color: #f1f2f4; height: 32px; padding-inline: 12px; }
 .dashboard-toolbar .group\/button:hover { background: #0055cc; }
+.dashboard-toolbar .group\/button[aria-pressed='true'] { background: var(--secondary); }
+.dashboard-toolbar .group\/button[aria-pressed='true']:hover { background: var(--accent); }
 .dashboard-save { font-size: 12px; color: #b6c2cf; white-space: nowrap; }
 .dashboard-save-error { color: #f87168; }
 .dashboard-error { padding: 7px 16px; border-radius: 0; background: var(--card); font-size: 13px; }
 .dashboard-scroll { flex: 1; min-height: 0; overflow: auto; }
 .dashboard-canvas { width: 100%; height: 100%; position: relative; }
+.dashboard-canvas-editing { background-image: radial-gradient(circle, rgba(198, 218, 244, .48) 1px, transparent 1.5px); background-size: 20px 20px; background-position: -10px -10px; }
 .dashboard-empty { position: absolute; top: 32px; left: 24px; width: auto; height: auto; min-width: 250px; align-items: flex-start; text-align: left; padding: 20px 24px; background: rgba(16,24,36,.88); box-shadow: 0 14px 28px rgba(2,6,12,.2); }
 .dashboard-card-handle { flex: 1; display: flex; gap: 8px; align-items: center; cursor: grab; min-height: 28px; outline: none; }
 .dashboard-card-handle:active { cursor: grabbing; }
@@ -122,6 +125,8 @@ body { min-height: 100svh; }
 .dashboard-card-head .group\/button { color: #b6c2cf; font-size: 21px; }
 .dashboard-card-title { padding: 0; height: auto; font-size: 17px; font-weight: 650; letter-spacing: -.02em; border: 0; border-radius: 4px; background: transparent; box-shadow: none; }
 .dashboard-card-title:focus-visible { background: #101722; padding-inline: 6px; }
+.dashboard-card-view .dashboard-card-content { padding-top: 14px; }
+.dashboard-card-view h2.dashboard-card-title { line-height: 1.35; overflow-wrap: anywhere; }
 .dashboard-card .react-resizable-handle { width: 22px !important; height: 22px !important; right: 0 !important; bottom: 0 !important; z-index: 10 !important; }
 .dashboard-card .react-resizable-handle::after { content: ''; position: absolute; right: 6px; bottom: 6px; width: 8px; height: 8px; border-right: 2px solid #579dff; border-bottom: 2px solid #579dff; }
 .login-shell { min-height: 100svh; }

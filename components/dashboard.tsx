@@ -14,9 +14,14 @@ import { SignOutButton } from "@/components/sign-out-button"
 import type { CardInput, CardRecord } from "@/lib/dashboard-card"
 
 type SaveState = "saved" | "saving" | "error"
+type LayoutMode = "view" | "edit"
+type CardChanges = Partial<CardInput> | ((card: CardRecord) => Partial<CardInput>)
+const GRID_SIZE = 20
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.max(minimum, Math.min(maximum, Math.round(value)))
+const snap = (value: number, minimum: number, maximum: number) =>
+  clamp(Math.round(value / GRID_SIZE) * GRID_SIZE, minimum, maximum)
 
 export function Dashboard({ initialCards, name, image }: {
   initialCards: CardRecord[]
@@ -24,6 +29,8 @@ export function Dashboard({ initialCards, name, image }: {
   image?: string | null
 }) {
   const [cards, setCards] = useState(initialCards)
+  const [mode, setMode] = useState<LayoutMode>("view")
+  const isEditing = mode === "edit"
   const [saveState, setSaveState] = useState<SaveState>("saved")
   const [error, setError] = useState("")
   const busy = useRef(false)
@@ -58,8 +65,8 @@ export function Dashboard({ initialCards, name, image }: {
     busy.current = true
     setSaveState("saving")
     setError("")
-    const nextY = Math.max(24, ...cardsRef.current.map((item) => item.y + item.height + 16))
-    const card: CardInput = { title: "Untitled card", x: 24, y: clamp(nextY, 0, 10000), width: 320, height: 220 }
+    const nextY = Math.max(GRID_SIZE, ...cardsRef.current.map((item) => item.y + item.height + GRID_SIZE))
+    const card: CardInput = { title: "Untitled card", x: GRID_SIZE, y: snap(nextY, 0, 10000), width: 320, height: 220 }
     try {
       const result = await mutate("/api/cards", "POST", card) as { card: CardRecord }
       updateCards([...cardsRef.current, result.card])
@@ -72,17 +79,29 @@ export function Dashboard({ initialCards, name, image }: {
     }
   }
 
-  async function patchCard(id: string, changes: Partial<CardInput>) {
-    if (busy.current) return
+  async function patchCard(id: string, changes: CardChanges) {
+    if (busy.current) {
+      pendingActions.current.push(() => void patchCard(id, changes))
+      return
+    }
     const before = cardsRef.current
-    const next = before.map((card) => card.id === id ? { ...card, ...changes } : card)
-    if (JSON.stringify(next) === JSON.stringify(before)) return
+    const current = before.find((card) => card.id === id)
+    if (!current) {
+      finishMutation()
+      return
+    }
+    const resolved = typeof changes === "function" ? changes(current) : changes
+    const next = before.map((card) => card.id === id ? { ...card, ...resolved } : card)
+    if (JSON.stringify(next) === JSON.stringify(before)) {
+      finishMutation()
+      return
+    }
     busy.current = true
     updateCards(next)
     setSaveState("saving")
     setError("")
     try {
-      await mutate(`/api/cards/${encodeURIComponent(id)}`, "PATCH", changes)
+      await mutate(`/api/cards/${encodeURIComponent(id)}`, "PATCH", resolved)
       setSaveState("saved")
     } catch (cause) {
       updateCards(before)
@@ -130,13 +149,14 @@ export function Dashboard({ initialCards, name, image }: {
         <div className="dashboard-toolbar-title"><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">Private</Badge></div>
         <div className="dashboard-toolbar-actions">
           <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
-          <Button size="sm" onClick={() => void addCard()}>+ Add card</Button>
+          {isEditing && <Button size="sm" onClick={() => void addCard()}>+ Add card</Button>}
+          <Button size="sm" variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
         </div>
       </div>
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="dashboard-scroll">
-        <div className="dashboard-canvas" style={{ minWidth: canvasWidth, minHeight: canvasHeight }}>
-          {cards.length === 0 && <Empty className="dashboard-empty"><EmptyHeader><EmptyTitle>Your space is ready.</EmptyTitle><EmptyDescription>Add a card to make it yours.</EmptyDescription></EmptyHeader></Empty>}
+        <div className={cn("dashboard-canvas", isEditing && "dashboard-canvas-editing")} style={{ minWidth: canvasWidth, minHeight: canvasHeight }}>
+          {cards.length === 0 && <Empty className="dashboard-empty"><EmptyHeader><EmptyTitle>Your space is ready.</EmptyTitle><EmptyDescription>{isEditing ? "Add a card to make it yours." : "Edit layout to add a card."}</EmptyDescription></EmptyHeader></Empty>}
           {cards.map((card) => (
             <Rnd
               key={card.id}
@@ -147,49 +167,53 @@ export function Dashboard({ initialCards, name, image }: {
               minHeight={160}
               maxWidth={1600}
               maxHeight={1200}
+              dragGrid={[GRID_SIZE, GRID_SIZE]}
+              resizeGrid={[GRID_SIZE, GRID_SIZE]}
               dragHandleClassName="dashboard-card-handle"
               resizeHandleClasses={{ bottomRight: "react-resizable-handle" }}
-              bounds="parent"
-              disableDragging={saveState === "saving"}
-              enableResizing={saveState === "saving" ? false : { bottomRight: true }}
+              disableDragging={!isEditing || saveState === "saving"}
+              enableResizing={isEditing && saveState !== "saving" ? { bottomRight: true } : false}
               onDragStop={(_event, position) => void patchCard(card.id, {
-                x: clamp(position.x, 0, 10000), y: clamp(position.y, 0, 10000),
+                x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
+                width: snap(card.width, 240, 1600), height: snap(card.height, 160, 1200),
               })}
               onResizeStop={(_event, _direction, ref, _delta, position) => void patchCard(card.id, {
-                x: clamp(position.x, 0, 10000), y: clamp(position.y, 0, 10000),
-                width: clamp(ref.offsetWidth, 240, 1600), height: clamp(ref.offsetHeight, 160, 1200),
+                x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
+                width: snap(ref.offsetWidth, 240, 1600), height: snap(ref.offsetHeight, 160, 1200),
               })}
             >
-              <Card className="dashboard-card-inner" size="sm">
-                <CardHeader className="dashboard-card-head">
+              <Card className={cn("dashboard-card-inner", !isEditing && "dashboard-card-view")} size="sm">
+                {isEditing && <CardHeader className="dashboard-card-head">
                   <div className="dashboard-card-handle" tabIndex={0} role="button" aria-label={`Move or resize ${card.title || "Untitled card"}. Arrow keys move, Shift and arrow keys resize.`}
                     onKeyDown={(event) => {
                       const directions: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
                       const direction = directions[event.key]
                       if (!direction) return
                       event.preventDefault()
-                      const step = event.altKey ? 1 : 16
-                      if (event.shiftKey) void patchCard(card.id, {
-                        width: clamp(card.width + direction[0] * step, 240, 1600),
-                        height: clamp(card.height + direction[1] * step, 160, 1200),
-                      })
-                      else void patchCard(card.id, {
-                        x: clamp(card.x + direction[0] * step, 0, 10000),
-                        y: clamp(card.y + direction[1] * step, 0, 10000),
-                      })
+                      const step = GRID_SIZE
+                      if (event.shiftKey) void patchCard(card.id, (current) => ({
+                        x: snap(current.x, 0, 10000), y: snap(current.y, 0, 10000),
+                        width: snap(current.width + direction[0] * step, 240, 1600),
+                        height: snap(current.height + direction[1] * step, 160, 1200),
+                      }))
+                      else void patchCard(card.id, (current) => ({
+                        x: snap(current.x + direction[0] * step, 0, 10000),
+                        y: snap(current.y + direction[1] * step, 0, 10000),
+                        width: snap(current.width, 240, 1600), height: snap(current.height, 160, 1200),
+                      }))
                     }}>
                     <span className="dashboard-grip" aria-hidden="true">⠿</span><span className="dashboard-card-label">Card</span>
                   </div>
                   <Button variant="ghost" size="icon-xs" aria-label={`Remove ${card.title || "untitled card"}`} title="Remove card" onClick={() => void removeCard(card.id)}>×</Button>
-                </CardHeader>
-                <CardContent className="dashboard-card-content"><Input key={`${card.id}-${card.title}`} defaultValue={card.title} placeholder="Untitled card" aria-label="Card title" maxLength={120} className="dashboard-card-title" disabled={saveState === "saving"}
+                </CardHeader>}
+                <CardContent className="dashboard-card-content">{isEditing ? <Input key={`${card.id}-${card.title}`} defaultValue={card.title} placeholder="Untitled card" aria-label="Card title" maxLength={120} className="dashboard-card-title" disabled={saveState === "saving"}
                   onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }}
                   onBlur={(event) => {
                     const title = event.currentTarget.value.trim() || "Untitled card"
                     event.currentTarget.value = title
                     if (title !== card.title) void patchCard(card.id, { title })
-                  }} /></CardContent>
-                <CardFooter className="dashboard-card-footer">Drag the top edge · Resize from the corner</CardFooter>
+                  }} /> : <h2 className="dashboard-card-title">{card.title}</h2>}</CardContent>
+                {isEditing && <CardFooter className="dashboard-card-footer">Drag the top edge · Resize from the corner</CardFooter>}
               </Card>
             </Rnd>
           ))}
