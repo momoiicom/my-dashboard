@@ -75,6 +75,310 @@ try {
   const original = initial.originalBoardId
   await page.waitForURL(`**${boardPath(original)}`)
   await closeOnboarding(page)
+  const secondReviewFailures: string[] = []
+  const accessible = await addBoard("Accessible slide")
+  const hiddenNext = await addBoard("Hidden next slide")
+  await addCard(hiddenNext, "Hidden next card", 20, 20)
+  const axConnection = await api.post("/api/bot/connection", body({}))
+  assert.equal(axConnection.status(), 200)
+  const axToken = ((await axConnection.json()) as { token: string }).token
+  const axDocument = await api.put(
+    `/api/bot/cards/acceptance-ax?boardId=${accessible}`,
+    {
+      data: {
+        schemaVersion: "1",
+        title: "Accessible card",
+        components: [
+          {
+            component: "metric",
+            value: { label: "Visible metric", value: "AX value 42" },
+          },
+          { component: "paragraph", value: "Visible presentation paragraph" },
+          {
+            component: "table",
+            value: {
+              columns: [{ key: "data", label: "Visible column" }],
+              rows: [{ data: "Visible table value" }],
+            },
+          },
+          {
+            component: "richtext",
+            value:
+              '<a href="https://example.test/rich" target="_blank">Rich text link</a>',
+          },
+          {
+            component: "column",
+            value: [
+              {
+                component: "link",
+                value: {
+                  href: "https://example.test/link",
+                  label: "Presentation link",
+                },
+              },
+              {
+                component: "map",
+                value: {
+                  latitude: 51.5074,
+                  longitude: -0.1278,
+                  label: "Read-only London",
+                },
+              },
+              {
+                component: "chart",
+                value: {
+                  type: "bar",
+                  title: "Accessible chart",
+                  xKey: "day",
+                  series: [{ key: "value", label: "Chart value" }],
+                  data: [{ day: "Monday", value: 7 }],
+                },
+                options: { height: 180 },
+              },
+            ],
+          },
+        ],
+      },
+      headers: { authorization: `Bearer ${axToken}` },
+    }
+  )
+  assert.equal(axDocument.status(), 201)
+  await page.route("**www.openstreetmap.org/export/embed.html**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: '<button id="map-control">Map control</button>',
+    })
+  )
+  try {
+    await page.goto(boardPath(accessible))
+    await page.getByRole("heading", { name: "Accessible card" }).waitFor()
+    await page.getByRole("button", { name: "Play slideshow" }).click()
+    await phase(page, "dwelling")
+    await page.locator(".presentation-preloaded").waitFor({ state: "attached" })
+    const axSession = await context.newCDPSession(page)
+    const tree = await axSession.send("Accessibility.getFullAXTree")
+    await axSession.detach()
+    const exposedNames = tree.nodes
+      .filter((node) => !node.ignored)
+      .map((node) => node.name?.value)
+    for (const text of [
+      "Accessible card",
+      "AX value 42",
+      "Visible presentation paragraph",
+      "Visible table value",
+    ])
+      assert(
+        exposedNames.includes(text),
+        `${text} must be exposed in the accessibility tree`
+      )
+    assert(
+      !exposedNames.includes("Hidden next card"),
+      "Preloaded card content must stay outside accessibility tree"
+    )
+    const panel = page.locator(
+      ".presentation-panel:not(.presentation-preloaded):not(.presentation-incoming)"
+    )
+    for (const key of ["Tab", "Shift+Tab", "Tab"]) {
+      await page.keyboard.press(key)
+      assert.equal(
+        await page.evaluate(() =>
+          Boolean(document.activeElement?.closest(".presentation-panel"))
+        ),
+        false,
+        `${key} must not enter a read-only card`
+      )
+    }
+    for (const selector of [
+      "a.bot-link",
+      ".bot-richtext a",
+      "summary",
+      "svg[tabindex]",
+    ]) {
+      await panel
+        .locator(selector)
+        .first()
+        .evaluate((element) => (element as HTMLElement).focus())
+      assert.equal(
+        await page.evaluate(() =>
+          document.activeElement?.getAttribute("aria-label")
+        ),
+        "Stop slideshow",
+        `${selector} focus must redirect to Stop`
+      )
+    }
+    assert.equal(
+      await panel.locator(".recharts-tooltip-wrapper").isVisible(),
+      false,
+      "Redirected chart focus must not activate its tooltip"
+    )
+    const pageCount = context.pages().length
+    for (const selector of ["a.bot-link", ".bot-richtext a", "summary"]) {
+      await panel
+        .locator(selector)
+        .evaluate((element) => (element as HTMLElement).click())
+    }
+    await page.waitForTimeout(100)
+    assert.equal(
+      context.pages().length,
+      pageCount,
+      "Read-only links must not open tabs"
+    )
+    assert.equal(
+      await panel
+        .locator("details")
+        .evaluate((element) => (element as HTMLDetailsElement).open),
+      false,
+      "Presentation chart summary must remain inactive"
+    )
+    await panel
+      .locator("iframe")
+      .evaluate((element) => (element as HTMLIFrameElement).focus())
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.tagName === "IFRAME"),
+      false,
+      "Map frame must not receive keyboard focus"
+    )
+    await page.screenshot({ path: ".e2e/boards/accessible-presentation.png" })
+    await page.getByRole("button", { name: "Stop slideshow" }).click()
+    await page.getByRole("heading", { name: "Accessible card" }).waitFor()
+    await page
+      .locator(".bot-link")
+      .evaluate((element) => (element as HTMLElement).focus())
+    assert.equal(
+      await page.evaluate(() =>
+        document.activeElement?.textContent?.includes("Presentation link")
+      ),
+      true,
+      "Normal card link focus must return after Stop"
+    )
+    await page
+      .locator("summary")
+      .evaluate((element) => (element as HTMLElement).click())
+    assert.equal(
+      await page
+        .locator("details")
+        .evaluate((element) => (element as HTMLDetailsElement).open),
+      true,
+      "Normal chart interaction must return after Stop"
+    )
+    assert.equal(
+      await page
+        .locator("iframe")
+        .evaluate((element) => (element as HTMLIFrameElement).inert),
+      false,
+      "Normal map must not remain inert after Stop"
+    )
+    console.log(
+      "Review regression passed: visible content is accessible and card interaction stays blocked"
+    )
+  } catch (cause) {
+    secondReviewFailures.push(`Slideshow accessibility: ${String(cause)}`)
+  }
+  await page.goto(boardPath(original))
+  await closeOnboarding(page)
+  await page.unroute("**www.openstreetmap.org/export/embed.html**")
+  for (const id of [accessible, hiddenNext])
+    assert.equal(
+      (await api.delete(`/api/boards/${id}`, body({}))).status(),
+      200
+    )
+
+  const previousBoard = await addBoard("History predecessor")
+  const deletedHistory = await addBoard("Deleted history board")
+  try {
+    await page.goto(boardPath(previousBoard))
+    await page
+      .getByRole("tab", { name: "Deleted history board", exact: true })
+      .click()
+    await page.waitForURL(`**${boardPath(deletedHistory)}`)
+    const beforeDeleteHistory = await page.evaluate(() => history.length)
+    await page.getByRole("button", { name: "Delete board" }).click()
+    await page
+      .getByRole("dialog", { name: "Delete board?" })
+      .getByRole("button", { name: "Delete board" })
+      .click()
+    await page.waitForURL(`**${boardPath(original)}`)
+    assert.equal(
+      await page.evaluate(() => history.length),
+      beforeDeleteHistory,
+      "Deletion must replace the invalid history entry"
+    )
+    await page.goBack()
+    assert.equal(
+      page.url(),
+      `${base}${boardPath(previousBoard)}`,
+      "Back after deletion must return to the prior usable board"
+    )
+    console.log(
+      "Review regression passed: deleted board route is replaced in history"
+    )
+  } catch (cause) {
+    secondReviewFailures.push(`Deleted history: ${String(cause)}`)
+  }
+  await page.goto(boardPath(original))
+  await closeOnboarding(page)
+  assert.equal(
+    (await api.delete(`/api/boards/${previousBoard}`, body({}))).status(),
+    200
+  )
+  await api.delete(`/api/boards/${deletedHistory}`, body({}))
+
+  const remoteRename = await addBoard("Old remote name")
+  try {
+    await page.goto(boardPath(remoteRename))
+    await page
+      .getByRole("tab", { name: "Old remote name", exact: true })
+      .waitFor()
+    assert.equal(
+      (
+        await api.patch(
+          `/api/boards/${remoteRename}`,
+          body({ name: "New remote name" })
+        )
+      ).status(),
+      200
+    )
+    await page
+      .getByRole("tab", { name: "New remote name", exact: true })
+      .waitFor()
+    await page.getByRole("button", { name: "Rename board" }).click()
+    assert.equal(
+      await page.getByRole("textbox", { name: "Board name" }).inputValue(),
+      "New remote name",
+      "Rename dialog must use accepted remote metadata"
+    )
+    await page.getByRole("button", { name: "Cancel" }).click()
+    await page.getByRole("button", { name: "Play slideshow" }).click()
+    await phase(page, "dwelling")
+    assert.equal(
+      await page
+        .locator(
+          ".presentation-panel:not(.presentation-preloaded):not(.presentation-incoming)"
+        )
+        .getAttribute("aria-label"),
+      "New remote name",
+      "Playback must start with accepted remote metadata"
+    )
+    await page.getByRole("button", { name: "Stop slideshow" }).click()
+    console.log(
+      "Review regression passed: remote rename reaches dialog and playback"
+    )
+  } catch (cause) {
+    secondReviewFailures.push(`Remote rename: ${String(cause)}`)
+  }
+  await page.goto(boardPath(original))
+  await closeOnboarding(page)
+  assert.equal(
+    (await api.delete(`/api/boards/${remoteRename}`, body({}))).status(),
+    200
+  )
+  secondReviewFailures.forEach((failure) => console.error(failure))
+  assert.deepEqual(
+    secondReviewFailures,
+    [],
+    "Second cloud review browser regressions"
+  )
+
   const reviewFailures: string[] = []
   const deleted = await addBoard("Deleted in another tab")
   await addCard(deleted, "Deleted board content", 20, 20)
@@ -668,6 +972,20 @@ try {
     await currentPanel(page),
     second,
     "Outgoing board stays current while sliding"
+  )
+  const slideAxSession = await context.newCDPSession(page)
+  const slideTree = await slideAxSession.send("Accessibility.getFullAXTree")
+  await slideAxSession.detach()
+  const slideRegions = slideTree.nodes
+    .filter((node) => !node.ignored && node.role?.value === "region")
+    .map((node) => node.name?.value)
+  assert(
+    slideRegions.includes("Second slide"),
+    "Outgoing board stays accessible until transition completes"
+  )
+  assert(
+    !slideRegions.includes("Dashboard"),
+    "Incoming board stays outside accessibility until fully displayed"
   )
   await page.clock.runFor(300)
   await page.locator('.presentation-stage[data-phase="dwelling"]').waitFor()

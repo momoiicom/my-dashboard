@@ -62,6 +62,8 @@ The browser commands build and start isolated production servers. Run them seque
 | B6 | A board deleted in another tab kept rendering after the workspace poll | Missing active membership redirects to the original board; real API deletion and browser URL/content regression |
 | B7 | A full destination board reported that the source card had moved | Surface the server error; real 409 capacity response, actionable UI diagnosis, and source membership regression |
 | B8 | Switching boards discarded queued keyboard edits | Board tabs, board CRUD, and destination links stay inert during saves; held first PATCH with three keyboard edits verifies all three requests and final position before navigation resumes |
+| B9 | Unconditional presentation inertness removed visible headings and data from accessibility | Current/outgoing panels stay exposed; stage blocks activation and redirects card focus, while read-only maps stay inert. Chromium AX tree, Tab/focus, link/disclosure activation, map focus, and restored normal interaction checks |
+| B10 | Remote rename updated tabs but left dialogs and initial playback labels stale | Accepted metadata polls also update the matching snapshot board without changing cards; real API remote rename and dialog/playback regression |
 
 The initial restored-map test selected an iframe point below the viewport. Scrolling the iframe into view fixed the observation. The same hit-test assertion remains. Native wheel events did not dispatch under the paused Playwright clock, so event-wiring checks use bubbling events; root separately verified native wheel input in IAB.
 
@@ -82,3 +84,11 @@ These images contain synthetic preview content. Normal view retains its scrollab
 ## Verification boundaries
 
 Google OAuth was not completed with a real account. Callback path preservation and signed-session access were verified separately. Native fullscreen activation and exit were inspected in IAB; the deterministic suite tests request timing and rejection fallback. Production deployment and the production migration are outside this PR run.
+
+## Review round two triage
+
+The accessibility and remote-name findings failed before their fixes. The deleted-history finding passed at `f07e3ab` before implementation: deletion did not grow history and Back returned to the predecessor board. The missing-board redirect effect already covers local deletion, so no history code change was made. The regression remains to protect that behavior.
+
+Accessibility checks use Chromium's actual accessibility tree rather than DOM attributes alone. The visible card heading, metric, paragraph, and table value remain exposed; preloaded and incoming boards remain excluded. Card focus redirects to Stop, ordinary and richtext links do not open tabs, chart disclosures do not activate, and map frames cannot receive focus. Normal link, chart, and map behavior returns after Stop. Tab can leave the document for browser controls; the test requires that it cannot enter a presentation card, not that the browser keeps focus trapped on Stop.
+
+Rendered inspection caught chart focus bubbling after its redirect, which still opened a tooltip. The new tooltip-absence assertion failed, then passed after the stage stopped propagation of the captured card focus event.

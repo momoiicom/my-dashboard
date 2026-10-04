@@ -89,7 +89,13 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
         const response = await fetch("/api/boards", { cache: "no-store", signal: controller.signal })
         if (!response.ok) return
         const next = await response.json() as WorkspaceSnapshot
-        if (live && version === metadataVersion.current && !boardMutationPending.current) setWorkspace(next)
+        if (live && version === metadataVersion.current && !boardMutationPending.current) {
+          setWorkspace(next)
+          setSnapshot(current => {
+            const board = next.boards.find(board => board.id === current?.board.id)
+            return current && board ? { ...current, board } : current
+          })
+        }
       } catch {}
       finally { refreshing = false }
     }

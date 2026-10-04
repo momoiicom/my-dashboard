@@ -54,13 +54,15 @@ The authentication proxy preserves the requested canonical path through login. A
 
 The workspace owns board metadata, selected accepted snapshot, and playback. The editable Dashboard is keyed by board identity. Its existing mutation queue and polling fences stay per board. Queued requests carry the captured board ID and membership revision. Late responses cannot publish into another board. Navigating cancels unsent work and requests. Sent writes may finish on their captured board.
 
-Tabs use canonical Next links in creation order, roving arrow, Home, and End navigation, and horizontal scrolling. Creation, rename, and confirmed deletion update metadata. Background metadata requests carry a version and cannot overwrite a later board mutation. Snapshot registration stays stable across playback start and stop, so an old server page cannot restore a renamed tab. Card transfer dropdowns appear only in edit mode. Successful transfer removes the source card and offers a destination link. Shares and Settings remain disabled.
+Tabs use canonical Next links in creation order, roving arrow, Home, and End navigation, and horizontal scrolling. Creation, rename, and confirmed deletion update metadata. Background metadata requests carry a version and cannot overwrite a later board mutation. An accepted poll updates both the tab records and the matching active snapshot metadata, preserving its cards. Snapshot registration stays stable across playback start and stop, so an old server page cannot restore a renamed tab. Card transfer dropdowns appear only in edit mode. Successful transfer removes the source card and offers a destination link. Shares and Settings remain disabled.
 
 ## Playback lifecycle
 
 The controller has explicit idle, dwelling, waiting, and sliding states with a run generation. A run captures board creation order and starts at the selected board. It never adds newly created boards to that run. Deleted boards are skipped.
 
 The Play handler calls `requestFullscreen` synchronously on the already-mounted host. A rejection continues playback in the window. Starting exits edit mode and hides both bars. Play is disabled while a gesture, transfer, or mutation is pending.
+
+Presentation exposes only the current/outgoing panel to accessibility. Incoming and preloaded panels remain inert and aria-hidden until promotion. The stage captures card activation, stops card focus propagation, and redirects attempted card focus to Stop; its pointer shield stays above the cards. `BotCardRenderer({ document, acceptedAt, readOnly?: boolean })` defaults to normal interaction and propagates the presentation flag through nested components only to suppress map-frame focus and interaction. Headings, paragraphs, metrics, and visible table data remain readable. The chart's normal closed disclosure remains closed during playback.
 
 Presentation renders read-only snapshots separately from the editable canvas. It fits occupied bounds into the available viewport with padding, centers them, and caps scale at one. Fitting changes only a view transform. Resize and accepted card updates recompute the transform.
 
@@ -79,3 +81,9 @@ Model the Domain changed the schema to required board membership and an explicit
 The acceptance matrix is in `multiple-boards-verification.md`. Migration and database ownership checks precede UI acceptance. Browser checks use isolated databases and sessions. They do not establish a real Google OAuth login. Existing user data and production remain untouched.
 
 Implementation workers read the installed Next guides for layouts, navigation, authentication, and native History before writing framework code. The installed `node_modules/next/dist/docs/01-app/01-getting-started/04-linking-and-navigating.md` documents native history integration. The layouts guide documents preserved layout state across navigation. Browser fullscreen requires transient activation and announces changes through fullscreenchange. See the [MDN fullscreen reference](https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen) and [animation pause reference](https://developer.mozilla.org/en-US/docs/Web/API/Animation/pause).
+
+## Review round two design decision
+
+Astra and Sol traced the renderer, nested components, richtext links, Recharts focus targets, disclosures, cross-origin maps, metadata polls, and the existing deletion fallback. They compared stage input capture with a narrow optional renderer flag against converting every interactive renderer branch to static content. The first shape preserves the existing visual rendering and sanitization contract; the second requires broader richtext, chart, and link changes. The accepted shape keeps accessibility exposure separate from input suppression. An inert subtree is removed from the accessibility tree, as documented by [MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/inert). A third model launch was unavailable at the agent thread limit.
+
+The current deletion history behavior passed before any round-two implementation. The missing-board effect already replaces the invalid active route after a local delete. The new browser regression checks unchanged history length and Back returning to the previous usable board. No deletion navigation change is justified by the reviewed claim.
