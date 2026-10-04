@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       Object.keys(body).length
     )
       throw new BotHttpError(400, "Expected an empty JSON object")
-    return botResponse(await connectionForOwner(ownerId, request))
+    return botResponse(await connectionForOwner(ownerId))
   } catch (error) {
     return botError(error)
   }

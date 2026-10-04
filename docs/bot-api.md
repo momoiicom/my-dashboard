@@ -8,7 +8,7 @@ Open **Connect your bot** in the board and copy the instruction bundle. The brow
 
 Tokens are generated automatically and are stable when reopening the dialog. Concurrent connection requests converge to one token per owner. SQLite stores a SHA-256 token hash and an AES-256-GCM encrypted token, bound to the owner. It never stores plaintext tokens. Keep the encryption secret backed up. Set `BOT_TOKEN_SECRET` or use the fallback `NEXTAUTH_SECRET`; changing this secret prevents token recovery and returns an explicit error without replacing the existing credential. JWT sign-in secrets and bot bearer tokens are separate credentials.
 
-`BOT_PUBLIC_BASE_URL`, then `NEXTAUTH_URL`, then the request origin determines the instruction URL. Configuration must be an absolute HTTP(S) origin without credentials, path, query or fragment. Loopback URLs work only from the same computer. Configuring an address does not prove a remote bot can reach it.
+The instruction URL defaults to `https://dashboard.momoii.com`. `BOT_PUBLIC_BASE_URL` overrides this default and must be an absolute HTTP(S) origin without credentials, path, query or fragment. `NEXTAUTH_URL` and the request origin do not determine the instruction URL. For local bot development, set `BOT_PUBLIC_BASE_URL` to the local server origin. Loopback URLs work only from the same computer. Configuring an address does not prove a remote bot can reach it.
 
 ## Discover and write
 
