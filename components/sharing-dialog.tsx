@@ -39,11 +39,12 @@ export function SharingDialog({ board, onClose }: { board: BoardRecord; onClose:
       const result = await response.json()
       if (controller.signal.aborted) return
       if (!response.ok) throw new Error(result.error || "Could not update access.")
-      if (id) setShares(current => current.filter(share => share.id !== id))
-      else {
-        setShares(current => current.some(share => share.id === result.share.id) ? current.map(share => share.id === result.share.id ? result.share : share) : [...current, result.share])
-        setEmail("")
-      }
+      const refreshed = await fetch(endpoint, { cache: "no-store", signal: controller.signal })
+      const access = await refreshed.json()
+      if (controller.signal.aborted) return
+      if (!refreshed.ok) throw new Error(access.error || "Could not reload access.")
+      setShares(access.shares)
+      if (!id) setEmail("")
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not update access.") }
     finally { if (!controller.signal.aborted) setBusy(false) }
   }
