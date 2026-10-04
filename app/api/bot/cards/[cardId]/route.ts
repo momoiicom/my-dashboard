@@ -20,7 +20,8 @@ export async function PUT(
     const result = await putBotCard(
       ownerId,
       cardId,
-      parseBotDocument(await readBotJson(request))
+      parseBotDocument(await readBotJson(request)),
+      new URL(request.url).searchParams.get("boardId")
     )
     return botResponse({ card: result.card }, result.created ? 201 : 200)
   } catch (error) {

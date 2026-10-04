@@ -1,5 +1,6 @@
 import "server-only"
 
+import { workspaceCallbackUrl } from "@/lib/board"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import { getServerSession, type NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
@@ -50,12 +51,12 @@ export async function localUiUser() {
   })
 }
 
-export async function requireSession() {
+export async function requireSession(callbackUrl = "/") {
+  const login = `/login?callbackUrl=${encodeURIComponent(workspaceCallbackUrl(callbackUrl))}`
   const localUser = await localUiUser()
   if (localUser) return { user: localUser }
-  if (!process.env.NEXTAUTH_SECRET || !process.env.DATABASE_URL)
-    redirect("/login")
+  if (!process.env.NEXTAUTH_SECRET || !process.env.DATABASE_URL) redirect(login)
   const session = await getServerSession(authOptions)
-  if (!session?.user?.id?.trim()) redirect("/login")
+  if (!session?.user?.id?.trim()) redirect(login)
   return session
 }

@@ -1,3 +1,4 @@
+import { workspaceCallbackUrl } from "@/lib/board"
 import { redirect } from "next/navigation"
 import { getServerSession } from "next-auth"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -12,11 +13,16 @@ import { SignInButton } from "@/components/sign-in-button"
 import { authOptions } from "@/lib/auth"
 import { localUiMode } from "@/lib/local-ui-mode"
 
-export default async function LoginPage() {
-  if (localUiMode()) redirect("/")
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string | string[] }>
+}) {
+  const callbackUrl = workspaceCallbackUrl((await searchParams).callbackUrl)
+  if (localUiMode()) redirect(callbackUrl)
   if (process.env.NEXTAUTH_SECRET && process.env.DATABASE_URL) {
     const session = await getServerSession(authOptions)
-    if (session?.user?.id?.trim()) redirect("/")
+    if (session?.user?.id?.trim()) redirect(callbackUrl)
   }
 
   const configured = Boolean(
@@ -44,7 +50,7 @@ export default async function LoginPage() {
               </AlertDescription>
             </Alert>
           )}
-          <SignInButton disabled={!configured} />
+          <SignInButton disabled={!configured} callbackUrl={callbackUrl} />
         </CardContent>
       </Card>
     </main>

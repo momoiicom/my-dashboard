@@ -3,14 +3,14 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import { randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:net"
-import { mkdtemp, mkdir, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3"
 import { encode } from "next-auth/jwt"
 
-type TrialMode = "deterministic" | "agent"
+type TrialMode = "deterministic" | "agent" | "boards"
 type TrialRequest = Readonly<{ mode: TrialMode; repetition: 1 | 2 }>
 type TrialEnvironment = Readonly<{
   directory: string
@@ -22,7 +22,7 @@ type TrialEnvironment = Readonly<{
 }>
 
 const mode = process.argv[2]
-assert(mode === "deterministic" || mode === "agent", "Expected deterministic or agent mode")
+assert(mode === "deterministic" || mode === "agent" || mode === "boards", "Expected deterministic, agent, or boards mode")
 const outputRoot = join(process.cwd(), ".e2e")
 const authSecret = randomBytes(32).toString("base64url")
 const activeChildren = new Set<ChildProcess>()
@@ -120,6 +120,7 @@ async function runTrial(request: TrialRequest, buildEnv: NodeJS.ProcessEnv) {
   try {
     const databaseUrl = `file:${join(directory, "trial.db")}`
     const env = { ...buildEnv, DATABASE_URL: databaseUrl }
+    await writeFile(join(directory, "trial.db"), "")
     await run("node_modules/.bin/prisma", ["migrate", "deploy"], env, 60_000)
     const { PrismaClient } = await import("../generated/prisma/client")
     const client = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: databaseUrl }) })
@@ -146,13 +147,18 @@ async function runTrial(request: TrialRequest, buildEnv: NodeJS.ProcessEnv) {
     }
     assert(started, "Server could not bind a free loopback port")
     const trial: TrialEnvironment = Object.freeze({ directory, databaseUrl, baseUrl, authSecret, sessionToken, userId: user.id })
-    const label = request.mode === "agent" ? `agent-${request.repetition === 1 ? "first" : "replay"}` : "deterministic"
+    const label = request.mode === "agent" ? `agent-${request.repetition === 1 ? "first" : "replay"}` : request.mode
     const output = join(outputRoot, label)
     await mkdir(output, { recursive: true })
-    await run(process.execPath, ["node_modules/e2e/dist/cli/bin.js", "run", request.mode === "agent" ? "tests/dashboard-agent.e2e.ts" : "tests/dashboard.e2e.ts", "--output", output], {
-      ...env, E2E_BASE_URL: trial.baseUrl, E2E_SESSION_TOKEN: trial.sessionToken,
-    }, 240_000)
-    console.log(`${label} passed. Report: ${output}/report.json`)
+    const suiteEnv = { ...env, E2E_BASE_URL: trial.baseUrl, E2E_SESSION_TOKEN: trial.sessionToken }
+    if (request.mode === "boards") {
+      const compiled = join(output, "suite.mjs")
+      await run("node_modules/.bin/esbuild", ["scripts/boards-browser.ts", "--platform=node", "--format=esm", "--target=node22", `--outfile=${compiled}`], suiteEnv, 30_000)
+      await run(process.execPath, [compiled], suiteEnv, 240_000)
+    } else {
+      await run(process.execPath, ["node_modules/e2e/dist/cli/bin.js", "run", request.mode === "agent" ? "tests/dashboard-agent.e2e.ts" : "tests/dashboard.e2e.ts", "--output", output], suiteEnv, 240_000)
+    }
+    console.log(request.mode === "boards" ? `${label} passed. Screenshots: ${output}` : `${label} passed. Report: ${output}/report.json`)
   } finally {
     await stop(server)
     await prisma?.$disconnect()
@@ -163,6 +169,7 @@ async function runTrial(request: TrialRequest, buildEnv: NodeJS.ProcessEnv) {
 const buildDirectory = await mkdtemp(join(tmpdir(), "my-dashboard-e2e-build-"))
 const buildEnv = { ...process.env, DATABASE_URL: `file:${join(buildDirectory, "build.db")}`, NEXTAUTH_SECRET: authSecret, GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" }
 try {
+  await writeFile(join(buildDirectory, "build.db"), "")
   await run("npm", ["run", "build"], buildEnv, 180_000)
   if (mode === "agent") {
     await runTrial({ mode, repetition: 1 }, buildEnv)

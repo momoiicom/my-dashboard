@@ -22,7 +22,10 @@
     "db:deploy": "prisma migrate deploy",
     "test:smoke": "tsx scripts/smoke.ts",
     "test:e2e": "tsx scripts/e2e.ts deterministic",
-    "test:e2e:agent": "tsx scripts/e2e.ts agent"
+    "test:e2e:agent": "tsx scripts/e2e.ts agent",
+    "test:boards:migration": "tsx scripts/boards-migration.ts",
+    "test:boards:api": "tsx scripts/boards-smoke.ts",
+    "test:e2e:boards": "tsx scripts/e2e.ts boards"
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",

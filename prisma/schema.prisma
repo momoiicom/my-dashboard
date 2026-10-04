@@ -15,6 +15,7 @@ model User {
   image         String?
   accounts      Account[]
   sessions      Session[]
+  boards        Board[]
   cards         DashboardCard[]
   botToken      BotToken?
 }
@@ -56,9 +57,27 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model Board {
+  id              String @id
+  ownerId         String
+  name            String
+  nameKey         String
+  originalOwnerId String? @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  owner           User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  cards           DashboardCard[]
+
+  @@unique([ownerId, id])
+  @@unique([ownerId, nameKey])
+}
+
 model DashboardCard {
   id        String   @id @default(cuid())
   ownerId   String
+  boardId   String
+  membershipRevision Int @default(0)
+  lastMoveSourceBoardId String?
   title     String
   externalKey String?
   payload String?
@@ -73,7 +92,9 @@ model DashboardCard {
   updatedAt DateTime @updatedAt
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  @@index([ownerId])
+  board     Board @relation(fields: [ownerId, boardId], references: [ownerId, id], onDelete: Cascade)
+
+  @@index([ownerId, boardId])
   @@unique([ownerId, externalKey])
 }
 

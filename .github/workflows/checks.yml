@@ -22,6 +22,11 @@ jobs:
       - run: npm run build
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run test:boards:migration
       - run: npm run test:smoke
+      - run: npm run test:boards:api
       - run: node_modules/.bin/tsx scripts/bot-contract.ts
       - run: node_modules/.bin/tsx scripts/bot-smoke.ts
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run test:e2e:boards

@@ -1,3 +1,4 @@
+import { workspaceCallbackUrl } from "@/lib/board"
 import { getToken } from "next-auth/jwt"
 import { NextResponse, type NextRequest } from "next/server"
 import { localUiMode } from "@/lib/local-ui-mode"
@@ -8,6 +9,7 @@ export async function proxy(request: NextRequest) {
 
   if (
     path === "/api/bot/capabilities" ||
+    path === "/api/bot/boards" ||
     /^\/api\/bot\/cards\/[^/]+$/.test(path) ||
     path === "/login" ||
     path === "/api/auth" ||
@@ -29,7 +31,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  return NextResponse.redirect(new URL("/login", request.url))
+  const login = new URL("/login", request.url)
+  login.searchParams.set("callbackUrl", workspaceCallbackUrl(path))
+  return NextResponse.redirect(login)
 }
 
 export const config = {

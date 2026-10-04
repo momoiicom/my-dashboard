@@ -7,7 +7,7 @@ const documentFor = (title: string, value: number) => ({ schemaVersion: "1", tit
 
 test("anonymous visitor reaches login", async ({ app, browser, screen }) => {
   await app.open("/")
-  await expect(browser).toHaveURL("/login")
+  await expect(browser).toHaveURL(/\/login\?callbackUrl=%2F$/)
   await expect(screen.getByRole("heading", "Dashboard")).toBeHidden()
   await app.screenshot("anonymous-login")
 })
@@ -58,14 +58,14 @@ test("owner connects a bot and updates a card without losing geometry", async ({
 
   await screen.getByRole("button", "Edit layout").tap()
   const handle = screen.getByRole("button", /Move or resize Service health/)
-  const moved = browser.waitForResponse("**/api/cards/*")
+  const moved = browser.waitForResponse("**/api/boards/*/cards/*")
   await handle.press("ArrowRight")
   expect((await moved).status).toBe(200)
-  const resized = browser.waitForResponse("**/api/cards/*")
+  const resized = browser.waitForResponse("**/api/boards/*/cards/*")
   await handle.press("Shift+ArrowRight")
   expect((await resized).status).toBe(200)
   await screen.getByRole("button", "Done editing").tap()
-  const before = await browser.evaluate(async () => (await (await fetch("/api/cards")).json()).cards[0]) as { id: string; x: number; width: number }
+  const before = await browser.evaluate(async () => (await (await fetch(`/api/boards/${location.pathname.split("/").at(-1)}/cards`)).json()).cards[0]) as { id: string; x: number; width: number }
   expect(before.x).toBe(40)
   expect(before.width).toBe(500)
 
@@ -77,7 +77,7 @@ test("owner connects a bot and updates a card without losing geometry", async ({
   expect(replaced).toEqual([200, 200])
   await expect(screen.getByRole("heading", "Service health updated", { level: 2 })).toBeVisible()
   await expect(screen.getByText("1300").first()).toBeVisible()
-  const after = await browser.evaluate(async () => (await (await fetch("/api/cards")).json()).cards[0]) as { id: string; x: number; width: number }
+  const after = await browser.evaluate(async () => (await (await fetch(`/api/boards/${location.pathname.split("/").at(-1)}/cards`)).json()).cards[0]) as { id: string; x: number; width: number }
   expect(after.id).toBe(before.id)
   expect(after.x).toBe(before.x)
   expect(after.width).toBe(before.width)
@@ -89,7 +89,7 @@ test("owner connects a bot and updates a card without losing geometry", async ({
     const original = window.fetch
     let intercepted = false
     window.fetch = async (...args) => {
-      if (!intercepted && String(args[0]) === "/api/cards" && !args[1]?.method) {
+      if (!intercepted && String(args[0]).startsWith("/api/boards/") && String(args[0]).endsWith("/cards") && !args[1]?.method) {
         intercepted = true
         const response = await original(...args)
         state.heldBotPoll = true
@@ -101,7 +101,7 @@ test("owner connects a bot and updates a card without losing geometry", async ({
   })
   await expect.poll(() => browser.evaluate(() => Boolean((window as Window & { heldBotPoll?: boolean }).heldBotPoll))).toBe(true)
   await screen.getByRole("button", "Edit layout").tap()
-  const removed = browser.waitForResponse("**/api/cards/*")
+  const removed = browser.waitForResponse("**/api/boards/*/cards/*")
   await screen.getByRole("button", "Remove Service health updated").tap()
   expect((await removed).status).toBe(200)
   const retainedAfterOldPoll = await browser.evaluate(async () => {
@@ -110,5 +110,5 @@ test("owner connects a bot and updates a card without losing geometry", async ({
     return [...document.querySelectorAll("h2")].filter((heading) => heading.textContent === "Service health updated").length
   })
   expect(retainedAfterOldPoll).toBe(0)
-  expect(await browser.evaluate(async () => (await (await fetch("/api/cards")).json()).cards.length)).toBe(0)
+  expect(await browser.evaluate(async () => (await (await fetch(`/api/boards/${location.pathname.split("/").at(-1)}/cards`)).json()).cards.length)).toBe(0)
 })

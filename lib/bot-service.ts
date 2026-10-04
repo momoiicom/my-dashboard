@@ -12,7 +12,10 @@ import {
   parseBotDocument,
   type BotDocument,
 } from "@/lib/bot-document"
-import { cardSelect, serializeCard } from "@/lib/card-store"
+import { isBoardId } from "@/lib/board"
+import { ensureOriginalBoard, requireBoard } from "@/lib/board-store"
+import { retryWrite, StorageError, uniqueConstraint } from "@/lib/storage-error"
+import { cardSelect, nextCardY, serializeCard } from "@/lib/card-store"
 import { buildBotConnection } from "@/lib/bot-connection"
 
 export class BotHttpError extends Error {
@@ -172,73 +175,70 @@ function stableJson(value: unknown): string {
 export async function putBotCard(
   ownerId: string,
   externalKey: string,
-  document: BotDocument
+  document: BotDocument,
+  initialBoardId?: string | null
 ) {
   const payload = stableJson(document)
-  for (let attempt = 0; attempt < 6; attempt++) {
+  const original = await ensureOriginalBoard(ownerId)
+  for (let attempt = 0; ; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
-        const previous = await tx.dashboardCard.findUnique({
-          where: { ownerId_externalKey: { ownerId, externalKey } },
-          select: cardSelect,
-        })
-        if (previous?.payload === payload)
-          return { card: serializeCard(previous), created: false }
-        if (previous) {
-          const card = await tx.dashboardCard.update({
-            where: { id: previous.id },
+      return await retryWrite(() =>
+        prisma.$transaction(async (tx) => {
+          const previous = await tx.dashboardCard.findUnique({
+            where: { ownerId_externalKey: { ownerId, externalKey } },
+            select: cardSelect,
+          })
+          if (previous?.payload === payload)
+            return { card: serializeCard(previous), created: false }
+          if (previous) {
+            const card = await tx.dashboardCard.update({
+              where: { id: previous.id },
+              data: {
+                title: document.title,
+                payload,
+                acceptedAt: new Date(),
+                contentRevision: { increment: 1 },
+              },
+              select: cardSelect,
+            })
+            return { card: serializeCard(card), created: false }
+          }
+          if (
+            initialBoardId !== undefined &&
+            initialBoardId !== null &&
+            !isBoardId(initialBoardId)
+          )
+            throw new BotHttpError(400, "Invalid initial board ID")
+          const boardId = initialBoardId ?? original.id
+          await requireBoard(tx, ownerId, boardId)
+          const y = await nextCardY(tx, ownerId, boardId)
+          const card = await tx.dashboardCard.create({
             data: {
+              ownerId,
+              boardId,
+              externalKey,
               title: document.title,
               payload,
               acceptedAt: new Date(),
-              contentRevision: { increment: 1 },
+              contentRevision: 1,
+              kind: "blank",
+              x: 20,
+              y,
+              width: 480,
+              height: 360,
             },
             select: cardSelect,
           })
-          return { card: serializeCard(card), created: false }
-        }
-        const geometry = await tx.dashboardCard.findMany({
-          where: { ownerId },
-          select: { y: true, height: true },
+          return { card: serializeCard(card), created: true }
         })
-        const nextY = geometry.reduce(
-          (bottom, card) => Math.max(bottom, card.y + card.height + 20),
-          20
-        )
-        if (nextY > 10000)
-          throw new BotHttpError(
-            409,
-            "No space below existing cards. Ask the user to move or remove cards, then retry."
-          )
-        const card = await tx.dashboardCard.create({
-          data: {
-            ownerId,
-            externalKey,
-            title: document.title,
-            payload,
-            acceptedAt: new Date(),
-            contentRevision: 1,
-            kind: "blank",
-            x: 20,
-            y: nextY,
-            width: 480,
-            height: 360,
-          },
-          select: cardSelect,
-        })
-        return { card: serializeCard(card), created: true }
-      })
+      )
     } catch (error) {
-      const retryable =
-        error instanceof Error &&
-        /P2002|P2034|P2028|SQLITE_BUSY|locked|write conflict|Unique constraint/.test(
-          error.message
-        )
-      if (!retryable || attempt === 5) throw error
+      if (!uniqueConstraint(error)) throw error
+      if (attempt === 5)
+        throw new StorageError(503, "Storage is busy; retry the same card key")
       await new Promise((resolve) => setTimeout(resolve, 15 * (attempt + 1)))
     }
   }
-  throw new BotHttpError(503, "Card storage is busy; retry the same key")
 }
 export function botResponse(value: unknown, status = 200) {
   return Response.json(value, {
@@ -249,7 +249,7 @@ export function botResponse(value: unknown, status = 200) {
 export function botError(error: unknown) {
   if (error instanceof BotDocumentError)
     return botResponse({ error: error.message, issues: error.issues }, 422)
-  if (error instanceof BotHttpError)
+  if (error instanceof BotHttpError || error instanceof StorageError)
     return botResponse({ error: error.message }, error.status)
   return botResponse({ error: "Bot service unavailable; retry later" }, 503)
 }

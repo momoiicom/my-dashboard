@@ -26,7 +26,7 @@ const date = (value: string) => {
     : `${parsed.toISOString().slice(0, 19).replace("T", " ")} UTC`
 }
 
-function Component({ item }: { item: DisplayComponent }) {
+function Component({ item, readOnly }: { item: DisplayComponent; readOnly: boolean }) {
   switch (item.component) {
     case "title": {
       const level = item.options?.level ?? 2
@@ -158,6 +158,8 @@ function Component({ item }: { item: DisplayComponent }) {
               label ? `Map of ${label}` : `Map at ${latitude}, ${longitude}`
             }
             src={src}
+            inert={readOnly}
+            tabIndex={readOnly ? -1 : undefined}
             loading="lazy"
             referrerPolicy="no-referrer"
           />
@@ -189,7 +191,7 @@ function Component({ item }: { item: DisplayComponent }) {
         >
           {item.value.map((child, index) => (
             <div className="bot-layout-child" key={index}>
-              <Component item={child} />
+              <Component item={child} readOnly={readOnly} />
             </div>
           ))}
         </div>
@@ -205,7 +207,7 @@ function Component({ item }: { item: DisplayComponent }) {
         >
           {item.value.children.map((child, index) => (
             <div className="bot-layout-child" key={index}>
-              <Component item={child} />
+              <Component item={child} readOnly={readOnly} />
             </div>
           ))}
         </div>
@@ -220,9 +222,11 @@ function Component({ item }: { item: DisplayComponent }) {
 export function BotCardRenderer({
   document,
   acceptedAt,
+  readOnly = false,
 }: {
   document: BotDocument
   acceptedAt?: string | null
+  readOnly?: boolean
 }) {
   return (
     <div className="bot-document">
@@ -235,7 +239,7 @@ export function BotCardRenderer({
       >
         {document.components.map((item, index) => (
           <div className="bot-layout-child" key={index}>
-            <Component item={item} />
+            <Component item={item} readOnly={readOnly} />
           </div>
         ))}
       </div>

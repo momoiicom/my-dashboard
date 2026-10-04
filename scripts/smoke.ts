@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:net"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { config } from "dotenv"
@@ -14,10 +14,11 @@ import { PrismaClient } from "../generated/prisma/client"
 
 config({ path: ".env.local" })
 
-assert(process.env.NEXTAUTH_SECRET, "NEXTAUTH_SECRET is required")
+process.env.NEXTAUTH_SECRET = randomBytes(32).toString("hex")
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "my-dashboard-smoke-"))
 const databaseUrl = `file:${join(temporaryDirectory, "smoke.db")}`
+await writeFile(join(temporaryDirectory, "smoke.db"), "")
 const migration = spawnSync("node_modules/.bin/prisma", ["migrate", "deploy"], {
   env: { ...process.env, DATABASE_URL: databaseUrl },
   encoding: "utf8",
@@ -132,8 +133,12 @@ try {
     const cookie = `next-auth.session-token=${token}`
     signedCookie = cookie
     const authenticated = await get("/", cookie)
-    assert.equal(authenticated.status, 200)
-    const html = await authenticated.text()
+    assert.equal(authenticated.status, 307)
+    const boardPath = new URL(authenticated.headers.get("location")!, base).pathname
+    assert.match(boardPath, /^\/boards\/b_[0-9a-f]{32}$/)
+    const boardId = boardPath.split("/").at(-1)!
+    const cardsPath = `/api/boards/${boardId}/cards`
+    const html = await (await get(boardPath, cookie)).text()
     assert(html.includes("Smoke User"), "Signed-in page must render the account name")
     assert.equal((await get("/login", cookie)).status, 307)
 
@@ -148,29 +153,28 @@ try {
         headers: { cookie: authCookie, origin, "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       })
-    assert.equal((await get("/api/cards")).status, 401)
-    assert.equal((await api("/api/cards", "POST", { title: "x", x: 1, y: 1, width: 320, height: 220 }, "")).status, 401)
-    assert.equal((await api("/api/cards", "POST", { title: "x", x: 1, y: 1, width: 320, height: 220 }, cookie, "https://evil.example")).status, 403)
-    assert.equal((await api("/api/cards", "POST", { title: " ", x: 1, y: 1, width: 320, height: 220 })).status, 400)
-    assert.equal((await api("/api/cards", "POST", { title: "bad", x: -1, y: 1, width: 320, height: 220 })).status, 400)
-    assert.equal((await api("/api/cards", "POST", { title: "bad", x: 1.5, y: 1, width: 320, height: 220 })).status, 400)
-    assert.equal((await api("/api/cards", "POST", { title: "bad", x: 1, y: 1, width: 320, height: 220, ownerId: other.id })).status, 400)
-    const created = await api("/api/cards", "POST", { title: "Test card", x: 12, y: 24, width: 320, height: 220 })
+    assert.equal((await get("/api/boards")).status, 401)
+    assert.equal((await api(cardsPath, "POST", { title: "x", x: 1, y: 1, width: 320, height: 220 }, "")).status, 401)
+    assert.equal((await api(cardsPath, "POST", { title: "x", x: 1, y: 1, width: 320, height: 220 }, cookie, "https://evil.example")).status, 403)
+    assert.equal((await api(cardsPath, "POST", { title: " ", x: 1, y: 1, width: 320, height: 220 })).status, 400)
+    assert.equal((await api(cardsPath, "POST", { title: "bad", x: -1, y: 1, width: 320, height: 220 })).status, 400)
+    assert.equal((await api(cardsPath, "POST", { title: "bad", x: 1.5, y: 1, width: 320, height: 220 })).status, 400)
+    assert.equal((await api(cardsPath, "POST", { title: "bad", x: 1, y: 1, width: 320, height: 220, ownerId: other.id })).status, 400)
+    const created = await api(cardsPath, "POST", { title: "Test card", x: 12, y: 24, width: 320, height: 220 })
     assert.equal(created.status, 201)
     const card = (await created.json()).card as { id: string }
-    assert.equal((await get("/api/cards", otherCookie)).status, 200)
-    assert.equal(((await (await get("/api/cards", otherCookie)).json()).cards as unknown[]).length, 0)
-    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { title: "Stolen" }, otherCookie)).status, 404)
-    assert.equal((await api(`/api/cards/${card.id}`, "DELETE", undefined, otherCookie)).status, 404)
-    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { width: 239 })).status, 400)
-    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { ownerId: other.id })).status, 400)
-    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { x: 144, y: 256, width: 420, height: 300 })).status, 200)
-    const persisted = (await (await get("/api/cards", cookie)).json()).cards as Array<{ id: string, x: number, y: number, width: number, height: number }>
+    assert.equal((await get(cardsPath, otherCookie)).status, 404)
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "PATCH", { patch: { title: "Stolen" }, membershipRevision: 0 }, otherCookie)).status, 404)
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "DELETE", { membershipRevision: 0 }, otherCookie)).status, 404)
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "PATCH", { patch: { width: 239 }, membershipRevision: 0 })).status, 400)
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "PATCH", { patch: { ownerId: other.id }, membershipRevision: 0 })).status, 400)
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "PATCH", { patch: { x: 144, y: 256, width: 420, height: 300 }, membershipRevision: 0 })).status, 200)
+    const persisted = (await (await get(cardsPath, cookie)).json()).cards as Array<{ id: string, x: number, y: number, width: number, height: number }>
     assert.deepEqual(persisted.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })), [{ id: card.id, x: 144, y: 256, width: 420, height: 300 }])
-    assert((await (await get("/", cookie)).text()).includes("Test card"), "Saved card must render on reload")
-    assert.equal((await api(`/api/cards/${card.id}`, "DELETE")).status, 200)
-    assert.equal((await api(`/api/cards/${card.id}`, "PATCH", { title: "Gone" })).status, 404)
-    assert.equal(((await (await get("/api/cards", cookie)).json()).cards as unknown[]).length, 0)
+    assert((await (await get(boardPath, cookie)).text()).includes("Test card"), "Saved card must render on reload")
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "DELETE", { membershipRevision: 0 })).status, 200)
+    assert.equal((await api(`/api/boards/${boardId}/cards/${card.id}`, "PATCH", { patch: { title: "Gone" }, membershipRevision: 0 })).status, 404)
+    assert.equal(((await (await get(cardsPath, cookie)).json()).cards as unknown[]).length, 0)
 
     const tampered = `${token[0] === "x" ? "y" : "x"}${token.slice(1)}`
     assert.equal(
