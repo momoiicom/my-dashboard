@@ -21,6 +21,7 @@ model User {
   boards        Board[]
   cards         DashboardCard[]
   botToken      BotToken?
+  @@index([googleVerifiedEmail])
 }
 
 model Account {

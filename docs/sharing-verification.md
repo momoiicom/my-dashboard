@@ -21,7 +21,7 @@ All checks use local artifacts and temporary SQLite databases; no deployed datab
 | `npm run lint` | Passed; pre-existing bot-card image warning remains. |
 | `npm run typecheck` | Passed. |
 | `npm run build` | Passed for integrated code and sharing routes. |
-| `npm run test:boards:migration` | Passed legacy preservation through both board and sharing migrations, ownership constraints, absent legacy verification proof, empty grants/overrides, and SQLite query-plan verification of the user-leading grant index and card/board layout cleanup indexes. |
+| `npm run test:boards:migration` | Passed legacy preservation through both board and sharing migrations, ownership constraints, absent legacy verification proof, empty grants/overrides, and SQLite query-plan verification of the verified-email account lookup, user-leading grant index, and card/board layout cleanup indexes. |
 | `npm run test:smoke` | Passed signed-session rendering, forged-cookie rejection, card CRUD, origins and isolation. |
 | `npm run test:boards:api` | Passed board, membership, transfer, capacity and bot-targeting contracts. |
 | `tsx scripts/bot-contract.ts` / `tsx scripts/bot-smoke.ts` | Passed document contracts, browser/Bearer isolation, token recovery, revision/content and storage checks. |
@@ -40,6 +40,14 @@ The next cloud review identified duplicate pending invitations after a verified 
 The third cloud review caught a stale Sharing row after grant reconciliation reused its ID. A temporary-database fixture seeds the existing grant's former email; the actual POST returns the same ID with the current verified email. Before the UI fix, the open dialog never displayed that updated address. After replacing the matching row with the server response, the regression verifies the new email appears and the former email disappears without reopening the dialog. Build, the full sharing API/browser suite, lint, and typecheck passed again.
 
 The next review exposed a second reconciliation transition: a different pending grant ID can be deleted while the active ID survives. The browser reproduced two matching email rows after the server had merged them into one. The final handler reloads the complete authoritative access list after each successful POST or DELETE. Expanded browser checks verify both invitation merging and revocation removing the active and duplicate pending rows. The build, full sharing suite, lint, and typecheck passed. A focused read-only `gpt-6-astra` review found no additional defect in dialog cancellation, busy state, board identity, or list synchronization.
+
+An automatically triggered review finished after GitHub's earlier merge-ready verdict and raised two more findings. The verified-email invitation lookup reproduced `SCAN User`; the supporting index now gives an indexed lookup, with migration preservation and OAuth callback checks still passing. This supporting index does not add a new uniqueness constraint to the cached OAuth proof column.
+
+The claimed stuck loading state during revoked navigation was independently tested in the browser. Holding the real destination route request, revoking access, then allowing either the route or workspace poll to finish first produces the full-page 404 boundary. The workspace is unmounted, with no loading status or private card content. This follows the planned unauthorized-URL behavior: `app/boards/[boardId]/page.tsx` calls `notFound()` before registering a route snapshot. Both orderings are retained as browser regressions; no production navigation change was justified.
+
+The integrated follow-up passed the production build, migration query plan and preservation checks, OAuth callback fixture, complete sharing API/browser suite, lint, and typecheck on Node.js 22.23.3. The isolated navigation regression also passed the complete board browser suite. Lint retains the existing image optimization warning in `bot-card-renderer.tsx`.
+
+PR handoff also checks that the Codex review summary is completed on the latest head and re-reads unresolved threads after that completion. The PR watcher can report `READY` while a cloud review is still running; CI and mergeability alone do not establish that the review has finished.
 
 ## Runtime finding and resolution
 

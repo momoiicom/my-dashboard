@@ -212,6 +212,9 @@ try {
     const legacyUser = migrated.prepare('SELECT "googleVerifiedEmail" FROM "User" WHERE "id" = ?').get(ownerId) as { googleVerifiedEmail: string | null }
     assert.equal(legacyUser.googleVerifiedEmail, null,
       "Legacy adapter emails do not become Google verification proof")
+    const accountPlan = migrated.prepare('EXPLAIN QUERY PLAN SELECT "id" FROM "User" WHERE "googleVerifiedEmail" = ? LIMIT 1').all("invite@example.test") as Array<{ detail: string }>
+    assert(accountPlan.some(step => /SEARCH User USING (?:COVERING )?INDEX/.test(step.detail)),
+      `Verified-email invitation lookup must use an index: ${accountPlan.map(step => step.detail).join("; ")}`)
     assert.equal((migrated.prepare('SELECT COUNT(*) AS count FROM "BoardGrant"').get() as { count: number }).count, 0,
       "Legacy migration grants no shared access")
     assert.equal((migrated.prepare('SELECT COUNT(*) AS count FROM "CardLayout"').get() as { count: number }).count, 0,

@@ -1,4 +1,5 @@
 ALTER TABLE "User" ADD COLUMN "googleVerifiedEmail" TEXT;
+CREATE INDEX "User_googleVerifiedEmail_idx" ON "User"("googleVerifiedEmail");
 
 CREATE TABLE "BoardGrant" (
   "id" TEXT NOT NULL PRIMARY KEY,
