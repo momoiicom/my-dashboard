@@ -1,10 +1,14 @@
 import { getToken } from "next-auth/jwt"
 import { NextResponse, type NextRequest } from "next/server"
+import { localUiMode } from "@/lib/local-ui-mode"
 
 export async function proxy(request: NextRequest) {
+  if (localUiMode()) return NextResponse.next()
   const path = request.nextUrl.pathname
 
   if (
+    path === "/api/bot/capabilities" ||
+    /^\/api\/bot\/cards\/[^/]+$/.test(path) ||
     path === "/login" ||
     path === "/api/auth" ||
     path.startsWith("/api/auth/") ||

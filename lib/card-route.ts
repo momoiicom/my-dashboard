@@ -1,9 +1,11 @@
 import "server-only"
 import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { authOptions, localUiUser } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export async function cardOwnerId() {
+  const localUser = await localUiUser()
+  if (localUser) return localUser.id
   if (!process.env.NEXTAUTH_SECRET || !process.env.DATABASE_URL) return null
   const session = await getServerSession(authOptions)
   const id = session?.user?.id?.trim()

@@ -16,6 +16,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   cards         DashboardCard[]
+  botToken      BotToken?
 }
 
 model Account {
@@ -59,6 +60,11 @@ model DashboardCard {
   id        String   @id @default(cuid())
   ownerId   String
   title     String
+  externalKey String?
+  payload String?
+  acceptedAt DateTime?
+  contentRevision Int @default(0)
+  kind      CardKind @default(blank)
   x         Int
   y         Int
   width     Int
@@ -68,4 +74,20 @@ model DashboardCard {
   owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([ownerId])
+  @@unique([ownerId, externalKey])
+}
+
+enum CardKind {
+  blank
+  notes
+  tasks
+  links
+}
+
+model BotToken {
+  ownerId String @id
+  tokenHash String @unique
+  encryptedToken String
+  createdAt DateTime @default(now())
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 }

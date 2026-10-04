@@ -5,6 +5,7 @@ import { getServerSession, type NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import { localUiMode } from "@/lib/local-ui-mode"
 
 const googleConfigured = Boolean(
   process.env.DATABASE_URL &&
@@ -39,7 +40,19 @@ export const authOptions: NextAuthOptions = {
     : [],
 }
 
+export async function localUiUser() {
+  if (!localUiMode()) return null
+  return prisma.user.upsert({
+    where: { id: "local-ui-owner" },
+    create: { id: "local-ui-owner", name: "Local workspace" },
+    update: {},
+    select: { id: true, name: true, image: true },
+  })
+}
+
 export async function requireSession() {
+  const localUser = await localUiUser()
+  if (localUser) return { user: localUser }
   if (!process.env.NEXTAUTH_SECRET || !process.env.DATABASE_URL)
     redirect("/login")
   const session = await getServerSession(authOptions)

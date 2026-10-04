@@ -1,0 +1,1 @@
+ALTER TABLE "DashboardCard" ADD COLUMN "kind" TEXT NOT NULL DEFAULT 'blank';

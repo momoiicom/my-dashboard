@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
@@ -9,13 +9,15 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "cn"
-import { Input } from "@/components/ui/input"
 import { SignOutButton } from "@/components/sign-out-button"
-import type { CardInput, CardRecord } from "@/lib/dashboard-card"
+import { cardKindDetails } from "@/lib/card-kinds"
+import { BotCardRenderer } from "@/components/bot-card-renderer"
+import { ConnectBotDialog } from "@/components/connect-bot-dialog"
+import type { CardPatch, CardRecord } from "@/lib/dashboard-card"
 
 type SaveState = "saved" | "saving" | "error"
 type LayoutMode = "view" | "edit"
-type CardChanges = Partial<CardInput> | ((card: CardRecord) => Partial<CardInput>)
+type CardChanges = CardPatch | ((card: CardRecord) => CardPatch)
 type ResizePreview = { id: string, width: number, height: number }
 const GRID_SIZE = 20
 
@@ -24,12 +26,17 @@ const clamp = (value: number, minimum: number, maximum: number) =>
 const snap = (value: number, minimum: number, maximum: number) =>
   clamp(Math.round(value / GRID_SIZE) * GRID_SIZE, minimum, maximum)
 
-export function Dashboard({ initialCards, name, image }: {
+export function Dashboard({ initialCards, name, image, localUiMode = false }: {
   initialCards: CardRecord[]
   name: string
   image?: string | null
+  localUiMode?: boolean
 }) {
   const [cards, setCards] = useState(initialCards)
+  const [connectOpen, setConnectOpen] = useState(initialCards.length === 0)
+  const requestEpoch = useRef(0)
+  const gesture = useRef(false)
+  const polling = useRef(false)
   const [mode, setMode] = useState<LayoutMode>("view")
   const [isSigningOut, setIsSigningOut] = useState(false)
   const isEditing = mode === "edit"
@@ -42,6 +49,7 @@ export function Dashboard({ initialCards, name, image }: {
   const cardsRef = useRef(cards)
 
   const finishMutation = () => {
+    requestEpoch.current++
     busy.current = false
     const next = pendingActions.current.shift()
     if (next) next()
@@ -53,7 +61,7 @@ export function Dashboard({ initialCards, name, image }: {
     setCards(next)
   }
 
-  async function mutate(url: string, method: string, body?: CardInput | Partial<CardInput>) {
+  async function mutate(url: string, method: string, body?: CardPatch) {
     const response = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
@@ -63,39 +71,13 @@ export function Dashboard({ initialCards, name, image }: {
     return response.json()
   }
 
-  async function addCard() {
-    if (busy.current) {
-      pendingActions.current.push(() => void addCard())
-      return
-    }
-    const nextY = Math.max(GRID_SIZE, ...cardsRef.current.map((item) => item.y + item.height + GRID_SIZE))
-    if (nextY > 10000) {
-      setSaveState("error")
-      setError("This layout has reached its lower limit. Move a card higher before adding another.")
-      finishMutation()
-      return
-    }
-    busy.current = true
-    setSaveState("saving")
-    setError("")
-    const card: CardInput = { title: "Untitled card", x: GRID_SIZE, y: snap(nextY, 0, 10000), width: 320, height: 220 }
-    try {
-      const result = await mutate("/api/cards", "POST", card) as { card: CardRecord }
-      updateCards([...cardsRef.current, result.card])
-      setSaveState("saved")
-    } catch (cause) {
-      setSaveState("error")
-      setError(cause instanceof Error ? cause.message : "Could not add card.")
-    } finally {
-      finishMutation()
-    }
-  }
-
   async function patchCard(id: string, changes: CardChanges) {
     if (busy.current) {
+      requestEpoch.current++
       pendingActions.current.push(() => void patchCard(id, changes))
       return
     }
+    requestEpoch.current++
     const before = cardsRef.current
     const current = before.find((card) => card.id === id)
     if (!current) {
@@ -116,7 +98,7 @@ export function Dashboard({ initialCards, name, image }: {
       await mutate(`/api/cards/${encodeURIComponent(id)}`, "PATCH", resolved)
       setSaveState("saved")
     } catch (cause) {
-      updateCards(before)
+      updateCards(cardsRef.current.map((card) => card.id === id ? { ...card, x: current.x, y: current.y, width: current.width, height: current.height } : card))
       setSaveState("error")
       setError(cause instanceof Error ? cause.message : "Could not save card.")
     } finally {
@@ -126,9 +108,11 @@ export function Dashboard({ initialCards, name, image }: {
 
   async function removeCard(id: string) {
     if (busy.current) {
+      requestEpoch.current++
       pendingActions.current.push(() => void removeCard(id))
       return
     }
+    requestEpoch.current++
     busy.current = true
     setSaveState("saving")
     setError("")
@@ -144,6 +128,32 @@ export function Dashboard({ initialCards, name, image }: {
     }
   }
 
+  useEffect(() => {
+    let active = true
+    async function refresh() {
+      if (!active || document.visibilityState !== "visible" || polling.current || busy.current || pendingActions.current.length || gesture.current) return
+      polling.current = true
+      const epoch = requestEpoch.current
+      try {
+        const response = await fetch("/api/cards", { cache: "no-store", credentials: "same-origin" })
+        if (!response.ok) return
+        const result = await response.json() as { cards: CardRecord[] }
+        if (!active || epoch !== requestEpoch.current || busy.current || pendingActions.current.length || gesture.current) return
+        const local = new Map(cardsRef.current.map((card) => [card.id, card]))
+        const merged = result.cards.map((remote) => {
+          const existing = local.get(remote.id)
+          return existing ? { ...existing, title: remote.title, kind: remote.kind, externalKey: remote.externalKey ?? null, payload: remote.payload ?? null, acceptedAt: remote.acceptedAt ?? null, contentRevision: remote.contentRevision ?? 0 } : remote
+        })
+        if (JSON.stringify(merged) !== JSON.stringify(cardsRef.current)) updateCards(merged)
+      } catch {}
+      finally { polling.current = false }
+    }
+    const timer = window.setInterval(() => void refresh(), 3000)
+    const visible = () => { if (document.visibilityState === "visible") void refresh() }
+    document.addEventListener("visibilitychange", visible)
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", visible) }
+  }, [])
+
   const canvasWidth = Math.max(1200, ...cards.map((card) => card.x + card.width + 32))
   const canvasHeight = Math.max(900, ...cards.map((card) => card.y + card.height + 32))
 
@@ -154,27 +164,27 @@ export function Dashboard({ initialCards, name, image }: {
         <div className="dashboard-account">
           <Avatar size="sm" className="dashboard-avatar">{image && <AvatarImage src={image} alt="" referrerPolicy="no-referrer" />}<AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback></Avatar>
           <span className="dashboard-account-name">{name}</span>
-          <SignOutButton onPendingChange={setIsSigningOut} beforeSignOut={() => {
+          {!localUiMode && <SignOutButton onPendingChange={setIsSigningOut} beforeSignOut={() => {
             setMode("view")
             return new Promise<void>((resolve) => {
               if (!busy.current && pendingActions.current.length === 0) resolve()
               else idleWaiters.current.push(resolve)
             })
-          }} />
+          }} />}
         </div>
       </header>
       <div className="dashboard-toolbar">
-        <div className="dashboard-toolbar-title"><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">Private</Badge></div>
+        <div className="dashboard-toolbar-title"><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">{localUiMode ? "Local" : "Private"}</Badge></div>
         <div className="dashboard-toolbar-actions">
           <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
-          {isEditing && <Button size="sm" onClick={() => void addCard()}>+ Add card</Button>}
+          <Button size="sm" variant="outline" onClick={() => setConnectOpen(true)}>Connect your bot</Button>
           <Button size="sm" disabled={isSigningOut} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
         </div>
       </div>
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="dashboard-scroll">
         <div className={cn("dashboard-canvas", isEditing && "dashboard-canvas-editing")} style={{ minWidth: canvasWidth, minHeight: canvasHeight }}>
-          {cards.length === 0 && <Empty className="dashboard-empty"><EmptyHeader><EmptyTitle>Your space is ready.</EmptyTitle><EmptyDescription>{isEditing ? "Add a card to make it yours." : "Edit layout to add a card."}</EmptyDescription></EmptyHeader></Empty>}
+          {cards.length === 0 && <Empty className="dashboard-empty"><EmptyHeader><EmptyTitle>Your space is ready.</EmptyTitle><EmptyDescription>Connect a bot to fill this board with live content.</EmptyDescription></EmptyHeader></Empty>}
           {cards.map((card) => (
             <Rnd
               key={card.id}
@@ -191,14 +201,18 @@ export function Dashboard({ initialCards, name, image }: {
               resizeHandleClasses={{ bottomRight: "react-resizable-handle" }}
               disableDragging={!isEditing || saveState === "saving"}
               enableResizing={isEditing && saveState !== "saving" ? { bottomRight: true } : false}
-              onDragStop={(_event, position) => void patchCard(card.id, {
+              onDragStart={() => { gesture.current = true; requestEpoch.current++ }}
+              onDragStop={(_event, position) => { gesture.current = false; requestEpoch.current++; void patchCard(card.id, {
                 x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
                 width: snap(card.width, 240, 1600), height: snap(card.height, 160, 1200),
-              })}
+              }) }}
+              onResizeStart={() => { gesture.current = true; requestEpoch.current++ }}
               onResize={(_event, _direction, ref) => setResizePreview({
                 id: card.id, width: ref.offsetWidth, height: ref.offsetHeight,
               })}
               onResizeStop={(_event, _direction, ref, _delta, position) => {
+                gesture.current = false
+                requestEpoch.current++
                 setResizePreview(null)
                 void patchCard(card.id, {
                   x: snap(position.x, 0, 10000), y: snap(position.y, 0, 10000),
@@ -226,17 +240,11 @@ export function Dashboard({ initialCards, name, image }: {
                         width: snap(current.width, 240, 1600), height: snap(current.height, 160, 1200),
                       }))
                     }}>
-                    <span className="dashboard-grip" aria-hidden="true">⠿</span><span className="dashboard-card-label">Card</span>
+                    <span className="dashboard-grip" aria-hidden="true">⠿</span><span className="dashboard-card-label">{!card.kind || card.kind === "blank" ? "Card" : cardKindDetails[card.kind].label}</span>
                   </div>
                   <Button variant="ghost" size="icon-xs" aria-label={`Remove ${card.title || "untitled card"}`} title="Remove card" onClick={() => void removeCard(card.id)}>×</Button>
                 </CardHeader>}
-                <CardContent className="dashboard-card-content">{isEditing ? <Input key={`${card.id}-${card.title}`} defaultValue={card.title} placeholder="Untitled card" aria-label="Card title" maxLength={120} className="dashboard-card-title" disabled={saveState === "saving"}
-                  onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur() }}
-                  onBlur={(event) => {
-                    const title = event.currentTarget.value.trim() || "Untitled card"
-                    event.currentTarget.value = title
-                    if (title !== card.title) void patchCard(card.id, { title })
-                  }} /> : <h2 className="dashboard-card-title">{card.title}</h2>}</CardContent>
+                <CardContent className="dashboard-card-content"><h2 className="dashboard-card-title">{card.title}</h2>{card.payload ? <BotCardRenderer document={card.payload} acceptedAt={card.acceptedAt} /> : card.kind && card.kind !== "blank" ? <Empty className="mt-4 min-h-20 flex-none rounded-md border border-border p-3"><EmptyDescription>{cardKindDetails[card.kind].empty}</EmptyDescription></Empty> : null}</CardContent>
                 {isEditing && <CardFooter className="dashboard-card-footer">Drag the top edge · Resize from the corner</CardFooter>}
               </Card>
               {isEditing && <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
@@ -248,6 +256,7 @@ export function Dashboard({ initialCards, name, image }: {
           ))}
         </div>
       </div>
+      {connectOpen && <ConnectBotDialog open={connectOpen} onOpenChange={setConnectOpen} />}
     </main>
   )
 }

@@ -23,3 +23,5 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:smoke
+      - run: node_modules/.bin/tsx scripts/bot-contract.ts
+      - run: node_modules/.bin/tsx scripts/bot-smoke.ts
