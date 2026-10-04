@@ -97,6 +97,12 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
     return () => { live = false; controller.abort(); clearInterval(timer) }
   }, [])
 
+  useEffect(() => {
+    if (!active && snapshot && pathname === boardHref(snapshot.board.id) && !workspace.boards.some(board => board.id === snapshot.board.id)) {
+      router.replace(boardHref(workspace.originalBoardId), { scroll: false })
+    }
+  }, [active, snapshot, pathname, workspace, router])
+
   function openDialog(next: BoardDialog) {
     setBoardName(next.kind === "rename" ? next.board.name : "")
     setDialogError("")

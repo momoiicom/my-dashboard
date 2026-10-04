@@ -75,6 +75,178 @@ try {
   const original = initial.originalBoardId
   await page.waitForURL(`**${boardPath(original)}`)
   await closeOnboarding(page)
+  const reviewFailures: string[] = []
+  const deleted = await addBoard("Deleted in another tab")
+  await addCard(deleted, "Deleted board content", 20, 20)
+  try {
+    await page.goto(boardPath(deleted))
+    await page.getByRole("heading", { name: "Deleted board content" }).waitFor()
+    assert.equal(
+      (await api.delete(`/api/boards/${deleted}`, body({}))).status(),
+      200
+    )
+    await page.waitForURL(`**${boardPath(original)}`, { timeout: 6500 })
+    assert.equal(
+      await page
+        .getByRole("heading", { name: "Deleted board content" })
+        .count(),
+      0
+    )
+    console.log(
+      "Review regression passed: external deletion returns to original board"
+    )
+  } catch (cause) {
+    reviewFailures.push(`External deletion: ${String(cause)}`)
+  }
+
+  const capacitySource = await addBoard("Capacity source")
+  const capacityTarget = await addBoard("Full destination")
+  const capacityCard = await addCard(
+    capacitySource,
+    "Capacity transfer",
+    20,
+    20
+  )
+  await addCard(capacityTarget, "Bottom card", 20, 10000)
+  try {
+    await page.goto(boardPath(capacitySource))
+    await page.getByRole("button", { name: "Edit layout" }).click()
+    const response = page.waitForResponse((value) =>
+      value.url().endsWith(`/api/cards/${capacityCard}/move`)
+    )
+    await page
+      .getByRole("combobox", { name: "Board for Capacity transfer" })
+      .selectOption(capacityTarget)
+    assert.equal((await response).status(), 409)
+    const error = page.locator(".dashboard-error")
+    await error.waitFor()
+    assert.match(
+      await error.innerText(),
+      /No space below existing cards.*Move or remove cards/
+    )
+    assert.equal(
+      await page
+        .getByRole("heading", { name: "Capacity transfer" })
+        .isVisible(),
+      true
+    )
+    const retained = (
+      (await (await api.get(cardPath(capacitySource))).json()) as {
+        cards: Array<{ id: string }>
+      }
+    ).cards
+    assert(
+      retained.some((card) => card.id === capacityCard),
+      "Capacity error must leave source membership intact"
+    )
+    console.log(
+      "Review regression passed: capacity diagnosis survives transfer error"
+    )
+  } catch (cause) {
+    reviewFailures.push(`Capacity diagnosis: ${String(cause)}`)
+  }
+
+  const queueSource = await addBoard("Queued edit source")
+  const queueTarget = await addBoard("Queued edit target")
+  const queueCard = await addCard(queueSource, "Queued movement", 120, 80)
+  let releaseQueue!: () => void
+  let queueStarted!: () => void
+  const queueHold = new Promise<void>((resolve) => {
+    releaseQueue = resolve
+  })
+  const queueSeen = new Promise<void>((resolve) => {
+    queueStarted = resolve
+  })
+  let patchCount = 0
+  await page.route(
+    `**/api/boards/${queueSource}/cards/${queueCard}`,
+    async (route) => {
+      if (route.request().method() === "PATCH") {
+        patchCount++
+        if (patchCount === 1) {
+          queueStarted()
+          await queueHold
+        }
+      }
+      await route.continue().catch(() => {})
+    }
+  )
+  try {
+    await page.goto(boardPath(queueSource))
+    await page.getByRole("button", { name: "Edit layout" }).click()
+    const handle = page.getByRole("button", {
+      name: /Move or resize Queued movement/,
+    })
+    await handle.press("ArrowRight")
+    await queueSeen
+    await handle.press("ArrowRight")
+    await handle.press("ArrowRight")
+    const tab = await page
+      .getByRole("tab", { name: "Queued edit target", exact: true })
+      .boundingBox()
+    assert(tab)
+    await page.mouse.click(tab.x + tab.width / 2, tab.y + tab.height / 2)
+    await page.waitForTimeout(100)
+    assert.equal(
+      page.url(),
+      `${base}${boardPath(queueSource)}`,
+      "Tab navigation must wait for queued edits"
+    )
+    for (const action of ["Create board", "Rename board", "Delete board"]) {
+      const button = await page
+        .getByRole("button", { name: action, exact: true })
+        .boundingBox()
+      assert(button)
+      await page.mouse.click(
+        button.x + button.width / 2,
+        button.y + button.height / 2
+      )
+      assert.equal(
+        await page.getByRole("dialog").count(),
+        0,
+        `${action} must wait for queued edits`
+      )
+    }
+    releaseQueue()
+    await page.waitForFunction(
+      () =>
+        !(
+          document.querySelector(
+            '[aria-label="Play slideshow"]'
+          ) as HTMLButtonElement
+        ).disabled
+    )
+    assert.equal(patchCount, 3, "All three already-invoked edits must be sent")
+    const saved = (
+      (await (await api.get(cardPath(queueSource))).json()) as {
+        cards: Array<{ id: string; x: number }>
+      }
+    ).cards.find((card) => card.id === queueCard)
+    assert.equal(saved?.x, 180, "All queued keyboard movements must persist")
+    await page
+      .getByRole("tab", { name: "Queued edit target", exact: true })
+      .click()
+    await page.waitForURL(`**${boardPath(queueTarget)}`)
+    console.log(
+      "Review regression passed: navigation and board CRUD wait for all queued edits"
+    )
+  } catch (cause) {
+    reviewFailures.push(`Queued edits: ${String(cause)}`)
+  } finally {
+    releaseQueue()
+    await page.unroute(`**/api/boards/${queueSource}/cards/${queueCard}`)
+  }
+  await page.goto(boardPath(original))
+  await closeOnboarding(page)
+  for (const id of [capacitySource, capacityTarget, queueSource, queueTarget])
+    assert.equal(
+      (await api.delete(`/api/boards/${id}`, body({}))).status(),
+      200
+    )
+  reviewFailures.forEach((failure) => console.error(failure))
+  assert.deepEqual(reviewFailures, [], "Cloud review browser regressions")
+  await page.reload()
+  await closeOnboarding(page)
   assert.equal(
     await page.getByRole("tablist", { name: "Boards" }).isVisible(),
     true

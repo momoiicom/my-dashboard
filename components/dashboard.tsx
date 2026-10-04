@@ -79,8 +79,9 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     })
-    if (!response.ok) throw new Error(response.status === 409 ? "This card changed boards. Refresh the board before editing it again." : "Could not save. Please try again.")
-    return response.json()
+    const result = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "Could not save. Please try again.")
+    return result
   }
 
   async function patchCard(id: string, changes: CardChanges) {
@@ -229,12 +230,12 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
           }} />
         </div>
       </header>
-      <div className="board-toolbar"><div className="board-toolbar-navigation" inert={hasGesture}>{boardToolbar}</div><Button size="icon-sm" variant="ghost" aria-label="Play slideshow" title="Play slideshow" disabled={hasGesture || saveState === "saving" || isSigningOut} onClick={() => {
+      <div className="board-toolbar"><div className="board-toolbar-navigation" inert={hasGesture || saveState === "saving" || isSigningOut}>{boardToolbar}</div><Button size="icon-sm" variant="ghost" aria-label="Play slideshow" title="Play slideshow" disabled={hasGesture || saveState === "saving" || isSigningOut} onClick={() => {
         if (busy.current || pendingActions.current.length || gesture.current) return
         setMode("view")
         onPlay(cardsRef.current)
       }}><Play aria-hidden="true" /></Button></div>
-      {movedTo && <div className="board-move-notice" role="status">Card moved to <Link href={boardHref(movedTo.id)}>{movedTo.name}</Link>.</div>}
+      {movedTo && <div className="board-move-notice" role="status" inert={hasGesture || saveState === "saving" || isSigningOut}>Card moved to <Link href={boardHref(movedTo.id)}>{movedTo.name}</Link>.</div>}
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="dashboard-scroll">
         <div className={cn("dashboard-canvas", isEditing && "dashboard-canvas-editing")} style={{ minWidth: canvasWidth, minHeight: canvasHeight }}>

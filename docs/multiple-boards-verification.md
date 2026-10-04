@@ -59,6 +59,9 @@ The browser commands build and start isolated production servers. Run them seque
 | B3 | Equal creation timestamps sorted random opaque IDs | Transaction assigns an increasing account timestamp; API fixture advances the old timestamp beyond the wall clock |
 | B4 | Wheel over Stop did not extend control visibility | Handler moved to the full stage; red and green bubbling-event regression |
 | B5 | Queued Remove after transfer left Saving and Play disabled | Missing-card check precedes mutation state; held-transfer browser regression verifies destination survives and Play returns |
+| B6 | A board deleted in another tab kept rendering after the workspace poll | Missing active membership redirects to the original board; real API deletion and browser URL/content regression |
+| B7 | A full destination board reported that the source card had moved | Surface the server error; real 409 capacity response, actionable UI diagnosis, and source membership regression |
+| B8 | Switching boards discarded queued keyboard edits | Board tabs, board CRUD, and destination links stay inert during saves; held first PATCH with three keyboard edits verifies all three requests and final position before navigation resumes |
 
 The initial restored-map test selected an iframe point below the viewport. Scrolling the iframe into view fixed the observation. The same hit-test assertion remains. Native wheel events did not dispatch under the paused Playwright clock, so event-wiring checks use bubbling events; root separately verified native wheel input in IAB.
 
