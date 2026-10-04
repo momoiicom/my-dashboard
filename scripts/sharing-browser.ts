@@ -266,6 +266,59 @@ try {
   assert.equal(await first.getByRole("alert").filter({ hasText: "Access to this shared board was removed." }).count(), 0)
   await first.unroute(`**/api/boards/${boardId}/cards/*`)
 
+  for (const order of ["route-first", "poll-first"] as const) {
+    const created = await author.request.post("/api/boards", payload({ name: `Revoked navigation ${order}` }))
+    assert.equal(created.status(), 201)
+    const destinationId = ((await created.json()) as { board: { id: string } }).board.id
+    assert.equal((await author.request.post(`/api/boards/${destinationId}/cards`, payload({ title: "Revoked navigation content", x: 20, y: 20, width: 400, height: 260 }))).status(), 201)
+    const grantId = await invite(author, destinationId, firstEmail)
+    const destinationPath = `/boards/${destinationId}`
+    await first.goto(`/boards/${ownWorkspace.originalBoardId}`)
+    await first.getByRole("dialog", { name: "Connect your bot" }).waitFor()
+    await closeOnboarding(first)
+    let releaseRoute!: () => void
+    let routeArrived!: () => void
+    const routeReceived = new Promise<void>(resolve => { routeArrived = resolve })
+    const routeBlocked = new Promise<void>(resolve => { releaseRoute = resolve })
+    let releaseWorkspace!: () => void
+    const workspaceBlocked = new Promise<void>(resolve => { releaseWorkspace = resolve })
+    await first.route("**/api/boards", async route => {
+      await workspaceBlocked
+      await route.continue().catch(() => {})
+    })
+    await first.route(`**${destinationPath}?*`, async route => {
+      routeArrived()
+      await routeBlocked
+      await route.continue().catch(() => {})
+    })
+    try {
+      await first.locator(`[role="tab"][href="${destinationPath}"]`).click()
+      await routeReceived
+      assert.equal((await author.request.delete(`/api/boards/${destinationId}/shares/${grantId}`, payload({}))).status(), 200)
+      if (order === "poll-first") {
+        releaseWorkspace()
+        await first.locator(`[role="tab"][href="${destinationPath}"]`).waitFor({ state: "hidden" })
+      }
+      releaseRoute()
+      await first.waitForURL(url => url.pathname === destinationPath)
+      await first.getByRole("heading", { name: "404", exact: true }).waitFor()
+      releaseWorkspace()
+      assert.equal(await first.locator(".board-workspace").count(), 0, `${order}: revoked destination unmounts the workspace`)
+      assert.equal(await first.getByRole("status").filter({ hasText: "Loading board" }).count(), 0, `${order}: revoked destination cannot leave a loading workspace`)
+      assert.equal(await first.getByRole("heading", { name: "Revoked navigation content", exact: true }).count(), 0)
+      console.log(`${order}: revoked tab navigation renders 404 without a workspace or shared content`)
+    } finally {
+      releaseRoute()
+      releaseWorkspace()
+      await first.unroute(`**${destinationPath}?*`)
+      await first.unroute("**/api/boards")
+    }
+  }
+  await first.goto(`/boards/${ownWorkspace.originalBoardId}`)
+  await first.getByRole("dialog", { name: "Connect your bot" }).waitFor()
+  await closeOnboarding(first)
+  await first.getByRole("button", { name: "Edit layout", exact: true }).waitFor()
+
   await invite(author, boardId, secondEmail)
   const secondWorkspace = await (await second.request.get("/api/boards")).json() as { boards: Array<{ id: string; role: string }> }
   const earlierBoard = secondWorkspace.boards.find(board => board.role === "viewer" && board.id !== boardId)
