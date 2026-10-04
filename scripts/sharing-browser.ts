@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 import { chromium, type BrowserContext, type Page } from "playwright"
+import Database from "better-sqlite3"
 
 const base = process.env.E2E_BASE_URL
 const authorToken = process.env.E2E_AUTHOR_SESSION_TOKEN
@@ -112,6 +113,24 @@ try {
       await author.unroute(sharesRoute)
     }
   }
+  const fixturePath = process.env.E2E_FIXTURE_DATABASE_PATH
+  assert(fixturePath, "The sharing harness must supply its temporary database for the changed-email fixture")
+  const fixture = new Database(fixturePath)
+  try {
+    assert.equal(fixture.prepare('UPDATE "BoardGrant" SET "email" = ? WHERE "boardId" = ? AND "email" = ?').run("former-browser@example.test", boardId, firstEmail).changes, 1)
+  } finally { fixture.close() }
+  const oldShares = (await (await author.request.get(`/api/boards/${boardId}/shares`)).json()).shares as Array<{ id: string; email: string }>
+  const changedGrantId = oldShares.find(share => share.email === "former-browser@example.test")!.id
+  await author.locator('summary[aria-label="Board options"]').click()
+  await author.getByRole("button", { name: "Sharing", exact: true }).click()
+  await sharing.getByText("former-browser@example.test", { exact: true }).waitFor()
+  await sharing.getByLabel("Email address").fill(firstEmail)
+  const changedShare = author.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith(`/api/boards/${boardId}/shares`))
+  await sharing.getByRole("button", { name: "Add access" }).click()
+  assert.equal((await (await changedShare).json()).share.id, changedGrantId, "A changed verified email keeps the active grant ID")
+  await sharing.getByText(firstEmail, { exact: true }).waitFor({ timeout: 1500 })
+  assert.equal(await sharing.getByText("former-browser@example.test", { exact: true }).count(), 0, "The existing row adopts the server's updated email")
+  await sharing.getByRole("button", { name: "Close", exact: true }).click()
   await first.getByRole("button", { name: "Customize my layout" }).click()
   const handle = first.getByRole("button", { name: /Move or resize Shared browser card/ })
   await handle.press("ArrowRight")

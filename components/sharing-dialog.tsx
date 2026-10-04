@@ -41,7 +41,7 @@ export function SharingDialog({ board, onClose }: { board: BoardRecord; onClose:
       if (!response.ok) throw new Error(result.error || "Could not update access.")
       if (id) setShares(current => current.filter(share => share.id !== id))
       else {
-        setShares(current => current.some(share => share.id === result.share.id) ? current : [...current, result.share])
+        setShares(current => current.some(share => share.id === result.share.id) ? current.map(share => share.id === result.share.id ? result.share : share) : [...current, result.share])
         setEmail("")
       }
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not update access.") }

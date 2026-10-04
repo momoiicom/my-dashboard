@@ -336,6 +336,7 @@ try {
         E2E_FIRST_VIEWER_SESSION_TOKEN: first.cookie.split("=")[1],
         E2E_SECOND_VIEWER_SESSION_TOKEN: second.cookie.split("=")[1],
         E2E_FIRST_VIEWER_EMAIL: replacementEmail, E2E_SECOND_VIEWER_EMAIL: second.email,
+        E2E_FIXTURE_DATABASE_PATH: join(directory, "api.db"),
       }, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
     })
     let browserOutput = ""
