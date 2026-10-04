@@ -14,7 +14,7 @@ import { BotCardRenderer } from "@/components/bot-card-renderer"
 import { ConnectBotDialog } from "@/components/connect-bot-dialog"
 import type { CardPatch, CardRecord } from "@/lib/dashboard-card"
 
-type SaveState = "saved" | "saving" | "error"
+type SaveState = "idle" | "saved" | "saving" | "error"
 type LayoutMode = "view" | "edit"
 type CardChanges = CardPatch | ((card: CardRecord) => CardPatch)
 type ResizePreview = { id: string, width: number, height: number }
@@ -39,7 +39,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false }: {
   const [mode, setMode] = useState<LayoutMode>("view")
   const [isSigningOut, setIsSigningOut] = useState(false)
   const isEditing = mode === "edit"
-  const [saveState, setSaveState] = useState<SaveState>("saved")
+  const [saveState, setSaveState] = useState<SaveState>("idle")
   const [error, setError] = useState("")
   const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null)
   const busy = useRef(false)
@@ -128,6 +128,12 @@ export function Dashboard({ initialCards, name, image, localUiMode = false }: {
   }
 
   useEffect(() => {
+    if (saveState !== "saved") return
+    const timer = window.setTimeout(() => setSaveState("idle"), 2000)
+    return () => window.clearTimeout(timer)
+  }, [saveState])
+
+  useEffect(() => {
     let active = true
     async function refresh() {
       if (!active || document.visibilityState !== "visible" || polling.current || busy.current || pendingActions.current.length || gesture.current) return
@@ -161,7 +167,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false }: {
       <header className="dashboard-topbar">
         <div className="dashboard-brand"><span className="dashboard-brand-mark" aria-hidden="true">▦</span><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">{localUiMode ? "Local" : "Private"}</Badge></div>
         <div className="dashboard-actions">
-          <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
+          <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : saveState === "saved" ? "Saved" : ""}</span>
           <Button size="sm" variant="outline" onClick={() => setConnectOpen(true)}>Connect your bot</Button>
           <Button size="sm" disabled={isSigningOut} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
         </div>
