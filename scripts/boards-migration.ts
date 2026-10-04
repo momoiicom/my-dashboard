@@ -54,10 +54,9 @@ try {
   const entries = (await readdir(source))
     .filter((name) => /^\d+_/.test(name))
     .sort()
-  const latest = entries.at(-1)
-  if (!latest || !latest.includes("multiple_boards"))
-    throw new Error("Expected the board migration to be the last migration")
-  for (const entry of entries.slice(0, -1))
+  const boardMigrationIndex = entries.findIndex(name => name.endsWith("_multiple_boards"))
+  assert(boardMigrationIndex >= 0, "Expected the multi-board migration")
+  for (const entry of entries.slice(0, boardMigrationIndex))
     await cp(join(source, entry), join(migrations, entry), { recursive: true })
   await cp(
     join(source, "migration_lock.toml"),
@@ -113,7 +112,8 @@ try {
     db.close()
   }
 
-  await cp(join(source, latest), join(migrations, latest), { recursive: true })
+  for (const entry of entries.slice(boardMigrationIndex))
+    await cp(join(source, entry), join(migrations, entry), { recursive: true })
   deploy()
   const migrated = new Database(databasePath)
   try {
@@ -209,6 +209,13 @@ try {
       { ownerId, tokenHash, encryptedToken, createdAt: issued }
     )
     assert.deepEqual(migrated.pragma("foreign_key_check"), [])
+    const legacyUser = migrated.prepare('SELECT "googleVerifiedEmail" FROM "User" WHERE "id" = ?').get(ownerId) as { googleVerifiedEmail: string | null }
+    assert.equal(legacyUser.googleVerifiedEmail, null,
+      "Legacy adapter emails do not become Google verification proof")
+    assert.equal((migrated.prepare('SELECT COUNT(*) AS count FROM "BoardGrant"').get() as { count: number }).count, 0,
+      "Legacy migration grants no shared access")
+    assert.equal((migrated.prepare('SELECT COUNT(*) AS count FROM "CardLayout"').get() as { count: number }).count, 0,
+      "Legacy geometry remains canonical without viewer overrides")
     const foreignBoard = boards.find((board) => board.ownerId === otherOwnerId)!
     assert.throws(
       () =>

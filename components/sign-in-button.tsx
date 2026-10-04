@@ -19,7 +19,7 @@ export function SignInButton({
       disabled={disabled || pending}
       onClick={() => {
         setPending(true)
-        void signIn("google", { callbackUrl }).catch(() => setPending(false))
+        void signIn("google", { callbackUrl }, { prompt: "select_account" }).catch(() => setPending(false))
       }}
     >
       {pending ? "Opening Google…" : "Continue with Google"}

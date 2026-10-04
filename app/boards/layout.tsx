@@ -8,6 +8,6 @@ export default async function BoardsLayout({ children }: { children: React.React
   const localUser = await localUiUser()
   const session = localUser ? { user: localUser } : await getServerSession(authOptions)
   if (!session?.user?.id) return children
-  const workspace = await getWorkspaceSnapshot(session.user.id)
+  const workspace = await getWorkspaceSnapshot(session.user.id, "googleVerified" in session.user && session.user.googleVerified === true)
   return <BoardWorkspace initialWorkspace={workspace} name={session.user.name || "Your account"} image={session.user.image} localUiMode={localUiMode()}>{children}</BoardWorkspace>
 }

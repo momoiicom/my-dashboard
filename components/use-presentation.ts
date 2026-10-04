@@ -183,7 +183,11 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
           const snapshot = await fetchBoard(id, controller.signal)
           if (live()) {
             if (snapshot) reduce({ type: "refresh", runId: run.id, snapshot })
-            else reduce({ type: "deleted", runId: run.id, boardId: id })
+            else {
+              const shared = current.phase.current.board.id === id && current.phase.current.board.role === "viewer"
+              reduce({ type: "deleted", runId: run.id, boardId: id })
+              if (shared) { stop(true, "Access to this shared board was removed."); return }
+            }
             pump()
           }
         } catch (error) {

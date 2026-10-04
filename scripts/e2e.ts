@@ -116,6 +116,7 @@ async function freePort() {
 async function runTrial(request: TrialRequest, buildEnv: NodeJS.ProcessEnv) {
   const directory = await mkdtemp(join(tmpdir(), "my-dashboard-e2e-"))
   let server: ChildProcess | undefined
+  let serverOutput = () => ""
   let prisma: { $disconnect(): Promise<void> } | undefined
   try {
     const databaseUrl = `file:${join(directory, "trial.db")}`
@@ -135,6 +136,7 @@ async function runTrial(request: TrialRequest, buildEnv: NodeJS.ProcessEnv) {
       baseUrl = `http://127.0.0.1:${port}`
       const next = start(process.execPath, ["node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", String(port)], { ...env, NEXTAUTH_URL: baseUrl })
       server = next.child
+      serverOutput = next.output
       for (let poll = 0; poll < 60; poll++) {
         if (server.exitCode !== null || server.signalCode !== null) break
         try { if ((await fetch(`${baseUrl}/login`)).status === 200) { started = true; break } } catch {}
@@ -159,6 +161,9 @@ async function runTrial(request: TrialRequest, buildEnv: NodeJS.ProcessEnv) {
       await run(process.execPath, ["node_modules/e2e/dist/cli/bin.js", "run", request.mode === "agent" ? "tests/dashboard-agent.e2e.ts" : "tests/dashboard.e2e.ts", "--output", output], suiteEnv, 240_000)
     }
     console.log(request.mode === "boards" ? `${label} passed. Screenshots: ${output}` : `${label} passed. Report: ${output}/report.json`)
+  } catch (error) {
+    console.error(`Trial server exit=${server?.exitCode} signal=${server?.signalCode}: ${serverOutput().slice(-2000)}`)
+    throw error
   } finally {
     await stop(server)
     await prisma?.$disconnect()

@@ -8,9 +8,9 @@ export const runtime = "nodejs"
 type Context = { params: Promise<{ boardId: string }> }
 
 export async function GET(request: Request, context: Context) {
-  return browserRoute(request, async (ownerId) => {
+  return browserRoute(request, async (ownerId, verifiedGoogle) => {
     const { boardId } = await context.params
-    const snapshot = await getBoardSnapshot(ownerId, boardId)
+    const snapshot = await getBoardSnapshot(ownerId, boardId, verifiedGoogle)
     if (!snapshot) throw new StorageError(404, "Board not found")
     return storageResponse(snapshot)
   })

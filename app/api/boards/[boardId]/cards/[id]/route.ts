@@ -13,7 +13,7 @@ export const runtime = "nodejs"
 type Context = { params: Promise<{ boardId: string; id: string }> }
 
 export async function PATCH(request: Request, context: Context) {
-  return browserRoute(request, async (ownerId) => {
+  return browserRoute(request, async (ownerId, verifiedGoogle) => {
     const body = await jsonBody(request)
     if (
       !objectBody(body, ["patch", "membershipRevision"]) ||
@@ -29,7 +29,8 @@ export async function PATCH(request: Request, context: Context) {
         boardId,
         id,
         body.membershipRevision,
-        patch
+        patch,
+        verifiedGoogle
       ),
     })
   })

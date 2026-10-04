@@ -225,7 +225,7 @@ try {
     )
     assert.equal(
       await panel
-        .locator("details")
+        .locator(".bot-chart details")
         .evaluate((element) => (element as HTMLDetailsElement).open),
       false,
       "Presentation chart summary must remain inactive"
@@ -252,11 +252,11 @@ try {
       "Normal card link focus must return after Stop"
     )
     await page
-      .locator("summary")
+      .locator(".bot-chart summary")
       .evaluate((element) => (element as HTMLElement).click())
     assert.equal(
       await page
-        .locator("details")
+        .locator(".bot-chart details")
         .evaluate((element) => (element as HTMLDetailsElement).open),
       true,
       "Normal chart interaction must return after Stop"
