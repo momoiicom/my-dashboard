@@ -219,6 +219,11 @@ try {
     const workspacePlan = migrated.prepare('EXPLAIN QUERY PLAN SELECT g."id" FROM "BoardGrant" AS g JOIN "Board" AS b ON b."id" = g."boardId" WHERE g."userId" = ? AND b."ownerId" <> ? ORDER BY g."createdAt", g."id"').all(ownerId, ownerId) as Array<{ detail: string }>
     assert(workspacePlan.some(step => /SEARCH g USING INDEX BoardGrant_userId_createdAt_id_idx/.test(step.detail)),
       `Workspace grant polling must use its user-leading index: ${workspacePlan.map(step => step.detail).join("; ")}`)
+    for (const [column, value] of [["cardId", cardId], ["boardId", original.id]]) {
+      const cleanupPlan = migrated.prepare(`EXPLAIN QUERY PLAN DELETE FROM "CardLayout" WHERE "${column}" = ?`).all(value) as Array<{ detail: string }>
+      assert(cleanupPlan.some(step => /SEARCH CardLayout USING (?:COVERING )?INDEX/.test(step.detail)),
+        `Layout cleanup by ${column} must use an index: ${cleanupPlan.map(step => step.detail).join("; ")}`)
+    }
     const foreignBoard = boards.find((board) => board.ownerId === otherOwnerId)!
     assert.throws(
       () =>

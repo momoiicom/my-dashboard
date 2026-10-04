@@ -282,6 +282,49 @@ try {
     assert.deepEqual(after.cards.map(geometry), before.cards.map(geometry), "Rejected old-membership batches leave every geometry unchanged")
     assert.deepEqual(after.cards.map(card => card.layoutSource), before.cards.map(card => card.layoutSource))
   }
+  for (const entry of ["board", "workspace", "invitation", "revocation", "known-email"] as const) {
+    const viewer = await identity(`Merge-${entry}`)
+    const changedEmail = `merge-${randomUUID()}@example.test`
+    const probeBoard = (await body<{ board: { id: string } }>(await request("/api/boards", "POST", { name: `Grant reconciliation ${entry}` }))).board.id
+    const probeShares = `/api/boards/${probeBoard}/shares`
+    const probeCards = `/api/boards/${probeBoard}/cards`
+    const probeCard = (await body<{ card: Card }>(await request(probeCards, "POST", { title: "Retained layout", x: 20, y: 20, width: 400, height: 260 }))).card
+    const activeGrant = (await body<{ share: Share }>(await request(probeShares, "POST", { email: viewer.email }))).share
+    assert.equal((await request(`${probeCards}/${probeCard.id}`, "PATCH", { membershipRevision: probeCard.membershipRevision, patch: { x: 160, y: 180 } }, viewer)).status, 200)
+    if (entry !== "known-email") {
+      const pending = (await body<{ share: Share }>(await request(probeShares, "POST", { email: changedEmail }))).share
+      assert.equal(pending.status, "pending")
+    }
+    let unrelatedBoard: string | undefined
+    let unrelatedShares: Share[] = []
+    if (["invitation", "revocation", "known-email"].includes(entry)) {
+      unrelatedBoard = (await body<{ board: { id: string } }>(await request("/api/boards", "POST", { name: `Unrelated grants ${entry}` }, outsider))).board.id
+      const otherShares = `/api/boards/${unrelatedBoard}/shares`
+      await request(otherShares, "POST", { email: viewer.email }, outsider)
+      await request(otherShares, "POST", { email: changedEmail }, outsider)
+      unrelatedShares = (await body<{ shares: Share[] }>(await request(otherShares, "GET", undefined, outsider))).shares
+      assert.equal(unrelatedShares.length, 2)
+    }
+    await prisma.user.update({ where: { id: viewer.id }, data: { email: changedEmail, googleVerifiedEmail: changedEmail } })
+    if (entry === "board") assert.equal((await request(probeCards, "GET", undefined, viewer)).status, 200)
+    else if (entry === "workspace") assert((await workspace(viewer)).boards.some(board => board.id === probeBoard))
+    else if (entry === "invitation" || entry === "known-email") assert.equal((await request(probeShares, "POST", { email: changedEmail })).status, 200)
+    const reconciled = (await body<{ shares: Share[] }>(await request(probeShares))).shares
+    assert.equal((await request(`${probeShares}/${activeGrant.id}`, "DELETE", {})).status, 200)
+    if (unrelatedBoard) assert.deepEqual((await body<{ shares: Share[] }>(await request(`/api/boards/${unrelatedBoard}/shares`, "GET", undefined, outsider))).shares, unrelatedShares,
+      "Author grant changes must not reconcile another author's board")
+    assert.equal((await request(probeCards, "GET", undefined, viewer)).status, 404, "Removing the active grant must not bind a leftover new-email invitation")
+    if (entry !== "revocation") assert.deepEqual(reconciled, [{ ...activeGrant, email: changedEmail, status: "active" }], "Reconciliation keeps one stable active grant with the current verified email")
+    assert.deepEqual((await body<{ shares: Share[] }>(await request(probeShares))).shares, [], "Revocation removes the active grant and its known duplicate invitation")
+    assert(!(await workspace(viewer)).boards.some(board => board.id === probeBoard), "Workspace polling must not restore revoked access")
+    assert.equal((await request(`${probeCards}/${probeCard.id}`, "PATCH", { membershipRevision: probeCard.membershipRevision, patch: { x: 200 } }, viewer)).status, 404)
+    assert.equal((await request(`/api/boards/${probeBoard}/layout`, "DELETE", {}, viewer)).status, 404)
+    assert.equal((await request(probeShares, "POST", { email: changedEmail })).status, 200)
+    const restored = await body<Snapshot>(await request(probeCards, "GET", undefined, viewer))
+    assert.deepEqual(geometry(restored.cards[0]), [160, 180, 400, 260], "Reconciliation and revocation preserve personal geometry for a deliberate re-invitation")
+    assert.equal((await request(`/api/boards/${probeBoard}`, "DELETE", {})).status, 200)
+    if (unrelatedBoard) assert.equal((await request(`/api/boards/${unrelatedBoard}`, "DELETE", {}, outsider)).status, 200)
+  }
   console.log("Private sharing, isolation, geometry, layout conflicts, and revocation: passed")
   if (process.argv.includes("--browser")) {
     const compiled = join(process.cwd(), ".e2e/sharing/suite.mjs")

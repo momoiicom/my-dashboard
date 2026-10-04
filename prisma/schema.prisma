@@ -145,4 +145,6 @@ model CardLayout {
   board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
   card DashboardCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
   @@id([userId, boardId, cardId])
+  @@index([cardId])
+  @@index([boardId])
 }

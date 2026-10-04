@@ -1,7 +1,7 @@
 import "server-only"
 import { prisma } from "@/lib/prisma"
 import { requireBoard } from "@/lib/board-store"
-import { effectiveBoardSnapshot, requireBoardAccess } from "@/lib/board-access"
+import { bindBoardGrants, effectiveBoardSnapshot, requireBoardAccess } from "@/lib/board-access"
 import { retryWrite, StorageError } from "@/lib/storage-error"
 import { objectBody } from "@/lib/card-route"
 
@@ -26,12 +26,13 @@ export async function addShare(userId: string, boardId: string, value: unknown) 
     await requireBoard(tx, userId, boardId)
     const owner = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true, googleVerifiedEmail: true } })
     if ([owner.email?.trim().toLowerCase(), owner.googleVerifiedEmail].includes(email)) throw new StorageError(409, "This account already owns the board")
+    const account = await tx.user.findFirst({ where: { googleVerifiedEmail: email }, select: { id: true } })
+    if (account) await bindBoardGrants(tx, account.id, true, boardId)
     const existing = await tx.boardGrant.findUnique({ where: { boardId_email: { boardId, email } }, select: shareSelect })
     if (existing) return serializeShare(existing)
-    const account = await tx.user.findFirst({ where: { googleVerifiedEmail: email }, select: { id: true } })
     if (account) {
       const bound = await tx.boardGrant.findUnique({ where: { boardId_userId: { boardId, userId: account.id } }, select: shareSelect })
-      if (bound) return serializeShare(bound)
+      if (bound) return serializeShare(await tx.boardGrant.update({ where: { id: bound.id }, data: { email }, select: shareSelect }))
     }
     return serializeShare(await tx.boardGrant.create({ data: { boardId, email, userId: account?.id ?? null }, select: shareSelect }))
   }))
@@ -40,6 +41,8 @@ export async function addShare(userId: string, boardId: string, value: unknown) 
 export async function revokeShare(userId: string, boardId: string, shareId: string) {
   return retryWrite(() => prisma.$transaction(async tx => {
     await requireBoard(tx, userId, boardId)
+    const grant = await tx.boardGrant.findFirst({ where: { id: shareId, boardId }, select: { userId: true } })
+    if (grant?.userId) await bindBoardGrants(tx, grant.userId, true, boardId)
     await tx.boardGrant.deleteMany({ where: { id: shareId, boardId } })
     return { deleted: true }
   }))

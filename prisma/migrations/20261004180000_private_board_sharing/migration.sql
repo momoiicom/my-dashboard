@@ -27,3 +27,5 @@ CREATE TABLE "CardLayout" (
   CONSTRAINT "CardLayout_boardId_fkey" FOREIGN KEY ("boardId") REFERENCES "Board" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "CardLayout_cardId_fkey" FOREIGN KEY ("cardId") REFERENCES "DashboardCard" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+CREATE INDEX "CardLayout_cardId_idx" ON "CardLayout"("cardId");
+CREATE INDEX "CardLayout_boardId_idx" ON "CardLayout"("boardId");

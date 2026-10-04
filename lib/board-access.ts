@@ -6,14 +6,17 @@ import { isBoardId } from "@/lib/board"
 import { cardSelect, serializeCard } from "@/lib/card-store"
 import { StorageError } from "@/lib/storage-error"
 
-export async function bindBoardGrants(tx: Prisma.TransactionClient, userId: string, verifiedGoogle: boolean) {
+export async function bindBoardGrants(tx: Prisma.TransactionClient, userId: string, verifiedGoogle: boolean, boardId?: string) {
   if (!verifiedGoogle) return
   const user = await tx.user.findUnique({ where: { id: userId }, select: { googleVerifiedEmail: true } })
   if (!user?.googleVerifiedEmail) return
-  const pending = await tx.boardGrant.findMany({ where: { email: user.googleVerifiedEmail, userId: null }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
+  const pending = await tx.boardGrant.findMany({ where: { email: user.googleVerifiedEmail, userId: null, ...(boardId ? { boardId } : {}) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] })
   for (const grant of pending) {
     const existing = await tx.boardGrant.findUnique({ where: { boardId_userId: { boardId: grant.boardId, userId } } })
-    if (!existing) await tx.boardGrant.update({ where: { id: grant.id }, data: { userId } })
+    if (existing) {
+      await tx.boardGrant.delete({ where: { id: grant.id } })
+      await tx.boardGrant.update({ where: { id: existing.id }, data: { email: user.googleVerifiedEmail } })
+    } else await tx.boardGrant.update({ where: { id: grant.id }, data: { userId } })
   }
 }
 
