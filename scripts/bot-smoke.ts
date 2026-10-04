@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
 import { randomBytes } from "node:crypto"
 import { createServer } from "node:net"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3"
@@ -14,6 +14,7 @@ import { BOT_EXAMPLE } from "../lib/bot-document"
 const directory = await mkdtemp(join(tmpdir(), "dashboard-bot-smoke-"))
 const databaseUrl = `file:${join(directory, "bot.db")}`
 const secret = randomBytes(32).toString("hex")
+await writeFile(join(directory, "bot.db"), "")
 const migration = spawnSync("node_modules/.bin/prisma", ["migrate", "deploy"], {
   env: { ...process.env, DATABASE_URL: databaseUrl },
   encoding: "utf8",
@@ -178,6 +179,9 @@ try {
       )
       assert.equal((await (await setup()).json()).token, token)
       const ownerId = mode === "local" ? "local-ui-owner" : user.id
+      const boardResponse = await call("/api/boards", "GET", undefined, { cookie })
+      assert.equal(boardResponse.status, 200)
+      const boardId = (await boardResponse.json()).originalBoardId as string
       const stored = await prisma.botToken.findUniqueOrThrow({
         where: { ownerId },
       })
@@ -216,6 +220,7 @@ try {
       await prisma.dashboardCard.create({
         data: {
           ownerId,
+          boardId,
           title: "Tall existing card",
           x: 20,
           y: 700,
@@ -252,18 +257,18 @@ try {
         1
       )
       const patch = await call(
-        `/api/cards/${before.id}`,
+        `/api/boards/${boardId}/cards/${before.id}`,
         "PATCH",
-        { x: 400, y: 200, width: 640, height: 480 },
+        { patch: { x: 400, y: 200, width: 640, height: 480 }, membershipRevision: 0 },
         { cookie, origin: base }
       )
       assert.equal(patch.status, 200)
       assert.equal(
         (
           await call(
-            `/api/cards/${before.id}`,
+            `/api/boards/${boardId}/cards/${before.id}`,
             "PATCH",
-            { title: "Owner overwrite" },
+            { patch: { title: "Owner overwrite" }, membershipRevision: 0 },
             { cookie, origin: base }
           )
         ).status,
@@ -369,7 +374,7 @@ try {
         assert.notEqual((await theirs.json()).card.id, before.id)
         assert.equal(
           (
-            await call(`/api/cards/${before.id}`, "DELETE", undefined, {
+            await call(`/api/boards/${boardId}/cards/${before.id}`, "DELETE", { membershipRevision: 0 }, {
               cookie: otherCookie,
               origin: base,
             })
@@ -377,13 +382,14 @@ try {
           404
         )
         assert.equal(
-          (await call("/api/cards", "GET", undefined, auth)).status,
+          (await call(`/api/boards/${boardId}/cards`, "GET", undefined, auth)).status,
           401
         )
       }
       await prisma.dashboardCard.create({
         data: {
           ownerId,
+          boardId,
           title: "Vertical boundary",
           x: 20,
           y: 9620,

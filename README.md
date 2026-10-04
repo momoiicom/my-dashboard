@@ -1,6 +1,6 @@
 # My dashboard
 
-A private Next.js dashboard for bot-authored display cards. Google sign-in creates a user and OAuth account in SQLite. Connect a bot to create and replace read-only card content. People control card placement, size and removal. Existing cards remain visible. Browser endpoints require a signed session; the bot capability and card-write endpoints always require a separate Bearer token. See [the bot API guide](docs/bot-api.md).
+A private Next.js workspace with saved boards for bot-authored display cards. Google sign-in creates a user and OAuth account in SQLite. Connect a bot to create and replace read-only card content. People control card placement, size and removal. Existing cards remain visible. Browser endpoints require a signed session; the bot capability, board-discovery and card-write endpoints always require a separate Bearer token. See [the bot API guide](docs/bot-api.md).
 
 ## Run locally
 
@@ -28,10 +28,24 @@ Both commands keep reports and screenshots under `.e2e/` and remove their tempor
 
 The UI components come from [shadcn/ui](https://ui.shadcn.com/). Cards use free-positioned [react-rnd](https://github.com/bokuweb/react-rnd). The dashboard opens in view mode. Select **Edit layout** to enable dragging, resizing and removal, then **Done editing** to freeze the layout. Card titles and content are read-only. Keyboard arrow keys move a focused card header; Shift+arrow keys resize it. The canvas scrolls to reach saved cards on smaller screens.
 
-**Connect your bot** provides a stable owner token and a complete copyable instruction bundle. It also opens automatically on an initially empty board and can be dismissed and reopened. The board periodically discovers bot cards and content updates without changing locally controlled geometry.
+**Connect your bot** provides a stable owner token and a complete copyable instruction bundle. It also opens automatically on an initially empty board and can be dismissed and reopened. Bots can discover boards by name and choose the initial board for each new key. Existing keys follow moved cards. The board periodically discovers bot cards and content updates without changing locally controlled geometry.
 
-On an existing installation, run `npm run db:generate` and `npm run db:deploy` before starting the updated app. The bot migration adds nullable payload fields, revision metadata and encrypted token storage. It preserves existing card records and geometry. Legacy card CRUD remains available for compatibility; browser title updates are forbidden on bot cards. Card mutation requests use JSON and a matching Origin header.
+On an existing installation, run `npm run db:generate` and `npm run db:deploy` before starting the updated app. The bot migration adds nullable payload fields, revision metadata and encrypted token storage. It preserves existing card records and geometry. The board migration assigns every existing card to its owner's original board and preserves all legacy fields and tokens. Browser card routes are scoped to `/api/boards/<boardId>/cards`; edit and deletion requests include the card's `membershipRevision`. Browser title updates are forbidden on bot cards. Card mutation requests use JSON and a matching Origin header.
 
 For bot verification, run `node_modules/.bin/tsx scripts/bot-contract.ts` and, after a build, `node_modules/.bin/tsx scripts/bot-smoke.ts`. The latter uses temporary databases and isolated servers. Run it separately from a development server in the same working directory. The [API guide](docs/bot-api.md) describes limits, token recovery and production smoke checks.
 
 The package overrides pin patched `deepmerge-ts` and `mysql2` versions used by the Prisma CLI. Check whether these overrides are still needed when upgrading Prisma.
+
+## Saved boards
+
+Use the tabs below the account toolbar to switch boards. The plus, pencil, and trash buttons create, rename, and delete boards. In **Edit layout**, each card has a destination dropdown. A successful transfer removes the card and shows a link to its destination.
+
+Select **Play** to present the selected board, then cycle through the captured tab order. Each board stays visible for 15 seconds before a 300 ms slide. Playback fits the saved layout into the viewport and pauses when the page is hidden. Fullscreen rejection uses the browser window. **Stop**, Escape, or leaving fullscreen restores the last displayed board and focuses Play.
+
+Every board has a permanent `/boards/<boardId>` URL. The root URL opens the original board, initially named Dashboard. Names are unique within the account after trimming and ignoring case. Renaming preserves the URL. The original board can be renamed but cannot be deleted. Deleting another board removes its remaining cards.
+
+Browser mutations require a signed session, a matching Origin header, and JSON. Board CRUD uses `/api/boards` and `/api/boards/<boardId>`. To transfer a card, send `POST /api/cards/<id>/move` with `{sourceBoardId,destinationBoardId}`. A transfer preserves content and dimensions, places the card below the destination cards, and increments its membership revision. Retrying the most recently completed transfer does not move it again, including after the old board is deleted. A full destination returns 409 without changing the card.
+
+Card edits and deletions compare the captured board and membership revision, so a queued request cannot edit a card that has moved away and returned. Missing or foreign resources return 404. Duplicate board names, original-board deletion, and stale membership return 409. Transient storage exhaustion returns 503 and can be retried.
+
+Run `npm run test:boards:migration` for legacy preservation and database ownership constraints. After a build, run `npm run test:boards:api` for board, transfer, and bot contracts. Run `npm run test:e2e:boards` for the isolated browser suite. See [the acceptance evidence](docs/multiple-boards-verification.md) for coverage and manual verification boundaries.

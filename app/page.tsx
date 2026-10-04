@@ -1,15 +1,12 @@
-import { cardSelect, serializeCard } from "@/lib/card-store"
-import { Dashboard } from "@/components/dashboard"
+import { redirect } from "next/navigation"
+import { connection } from "next/server"
 import { requireSession } from "@/lib/auth"
-import { localUiMode } from "@/lib/local-ui-mode"
-import { prisma } from "@/lib/prisma"
+import { boardHref } from "@/lib/board"
+import { ensureOriginalBoard } from "@/lib/board-store"
 
 export default async function HomePage() {
+  await connection()
   const session = await requireSession()
-  const cards = await prisma.dashboardCard.findMany({
-    where: { ownerId: session.user!.id },
-    select: cardSelect,
-    orderBy: { createdAt: "asc" },
-  })
-  return <Dashboard initialCards={cards.map(serializeCard)} name={session.user?.name || "Your account"} image={session.user?.image} localUiMode={localUiMode()} />
+  const board = await ensureOriginalBoard(session.user!.id)
+  redirect(boardHref(board.id))
 }

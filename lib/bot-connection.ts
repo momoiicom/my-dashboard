@@ -5,6 +5,7 @@ export type BotConnection = {
   token: string
   instructions: string
   capabilitiesUrl: string
+  boardsUrl: string
   cardUrlTemplate: string
   localOnly: boolean
 }
@@ -17,18 +18,20 @@ export function buildBotConnection(
     ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(hostname) ||
     hostname.endsWith(".localhost")
   const capabilitiesUrl = `${baseUrl}/api/bot/capabilities`
+  const boardsUrl = `${baseUrl}/api/bot/boards`
   const cardUrlTemplate = `${baseUrl}/api/bot/cards/{cardId}`
-  const instructions = `Connect to my read-only visualization board.
+  const instructions = `Connect to my private visualization boards.
 Base URL: ${baseUrl}
 Authorization: Bearer ${token}
 Discover the complete validated component/value/options catalog and JSON schema with GET ${capabilitiesUrl} using that Authorization header.
-Create or replace a card with PUT ${cardUrlTemplate}, Authorization above, and Content-Type: application/json. cardId is a stable key matching [A-Za-z0-9][A-Za-z0-9._-]{0,79}. Reuse the same key for updates. Each PUT replaces the complete current document. Identical retries preserve revision and acceptedAt. No payload history is retained.
+Discover boards with GET ${boardsUrl} using the same Authorization header. To target a named board, query ?name=<URL-encoded name>, then use the returned stable board ID. Names ignore capitalization and surrounding spaces. If the requested board is missing, ask the user which board to use or to create it. Never silently choose another board. Discovery also accepts ?id=<boardId>.
+Create or replace a card with PUT ${cardUrlTemplate}, Authorization above, and Content-Type: application/json. cardId is a stable key matching [A-Za-z0-9][A-Za-z0-9._-]{0,79}. Keys are unique across the account. Reuse the same key for updates; use distinct keys for separate cards, including cards on different boards. For a new card, append ?boardId=<boardId> to choose its initial board. Without boardId, new cards use the original board. Existing keys update their current board regardless of the hint, even after a transfer or deletion of their former board. Responses include the actual card.boardId. Each PUT replaces the complete current document. Identical retries preserve revision and acceptedAt. No payload history is retained.
 You own only the card title and internal display components/layout. The user owns placement, size and removal. Never send geometry, owner, database id, forms, chat, actions, arbitrary scripts, CSS or iframe URLs. All displayed content is read-only; ordinary informational links are allowed.
 Use schemaVersion "1". Optional updatedAt is your source timestamp; acceptedAt is assigned separately by the server. Omitted layout defaults to vertical/medium.
 Valid complete request body:
 ${JSON.stringify(BOT_EXAMPLE, null, 2)}
 Limits: ${JSON.stringify(BOT_LIMITS)}. Components may nest through row, column and grid. Consult capabilities for cross-field chart and table constraints and supported options. Richtext is sanitized before persistence. Maps support one coordinate. Images are loaded by the browser.
-Success: 201 created, 200 replaced or unchanged. Errors: 401 invalid/missing Bearer token; 400 malformed JSON or card key; 409 no vertical space for a new card, ask the user to move or remove cards before retrying; 413 body too large; 415 expected JSON; 422 invalid document with issues [{path,message}]; 503 configuration/storage unavailable. Existing card updates remain available at capacity. Rejected requests preserve the previous payload. Correct validation errors before retrying.
+Success: 201 created, 200 replaced or unchanged. Errors: 401 invalid/missing Bearer token; 400 malformed JSON, card key or board ID; 404 initial board missing or inaccessible; 409 no vertical space for a new card, ask the user to move or remove cards before retrying; 413 body too large; 415 expected JSON; 422 invalid document with issues [{path,message}]; 503 configuration/storage unavailable. Existing card updates remain available at capacity. Rejected requests preserve the previous payload. Correct validation errors before retrying.
 ${localOnly ? "This is a loopback/local address. A bot on another computer cannot reach it. Run the bot on this computer or configure a reachable BOT_PUBLIC_BASE_URL with the operator. No external reachability has been verified." : "This is the configured service address. Network reachability must be verified from the bot runtime."}
 Treat this bearer token as a secret. Do not publish it or put it in card content.`
   return {
@@ -36,6 +39,7 @@ Treat this bearer token as a secret. Do not publish it or put it in card content
     token,
     instructions,
     capabilitiesUrl,
+    boardsUrl,
     cardUrlTemplate,
     localOnly,
   }

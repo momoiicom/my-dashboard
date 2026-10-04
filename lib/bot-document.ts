@@ -650,7 +650,18 @@ export function getBotCapabilities() {
       ),
     })),
     example: BOT_EXAMPLE,
+    boards: {
+      discovery: "/api/bot/boards",
+      filters: ["name", "id"],
+      initialBoardQuery: "boardId",
+      keyScope: "owner",
+      defaultDestination: "original board",
+      responseBoardField: "card.boardId",
+    },
     rules: [
+      "Discover a requested board by name or ID before creating a card. Names ignore capitalization and surrounding spaces. Ask the user when the requested board is missing.",
+      "New card keys use the boardId query or the original board. Keys are owner-wide; use distinct keys for separate cards.",
+      "Existing keys update their current board regardless of the initial board hint, including after transfers or deletion of the old board. Responses include the actual boardId.",
       "Only listed properties are accepted. Geometry, owner and id are never bot writable.",
       "Maximum component depth is 8 and total component count is 200.",
       "Richtext is sanitized before storage. Both raw and sanitized HTML must fit the text limit. Only safe HTTP(S) anchors and listed text markup survive.",

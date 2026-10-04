@@ -123,7 +123,7 @@ body { min-height: 100svh; }
 .dashboard-scroll { flex: 1; min-height: 0; overflow: auto; }
 .dashboard-canvas { width: 100%; height: 100%; position: relative; }
 .dashboard-canvas-editing { background-image: radial-gradient(circle, rgba(198, 218, 244, .48) 1px, transparent 1.5px); background-size: 20px 20px; background-position: -10px -10px; }
-.dashboard-empty { position: absolute; top: 32px; left: 24px; width: auto; height: auto; min-width: 250px; align-items: flex-start; text-align: left; padding: 20px 24px; background: rgba(16,24,36,.88); box-shadow: 0 14px 28px rgba(2,6,12,.2); }
+.dashboard-empty { position: absolute; top: 32px; left: 24px; width: auto; height: auto; min-width: 250px; max-width: calc(100vw - 48px); align-items: flex-start; text-align: left; padding: 20px 24px; background: rgba(16,24,36,.88); box-shadow: 0 14px 28px rgba(2,6,12,.2); }
 .dashboard-card-handle { flex: 1; display: flex; gap: 8px; align-items: center; cursor: grab; min-height: 28px; outline: none; }
 .dashboard-card-handle:active { cursor: grabbing; }
 .dashboard-card-handle:focus-visible { outline: 2px solid #85b8ff; outline-offset: -2px; }
@@ -189,3 +189,42 @@ body { min-height: 100svh; }
 
 .bot-richtext :is(h1,h2,h3) { font-weight: 650; line-height: 1.3; margin-block: 12px 6px; }.bot-richtext h1 { font-size: 1.45em; }.bot-richtext h2 { font-size: 1.25em; }.bot-richtext h3 { font-size: 1.1em; }.bot-richtext :is(ul,ol) { padding-left: 20px; margin-block: 8px; }.bot-richtext ul { list-style: disc; }.bot-richtext ol { list-style: decimal; }.bot-richtext li + li { margin-top: 3px; }.bot-richtext blockquote { padding-left: 12px; border-left: 1px solid var(--border); color: var(--muted-foreground); }.bot-richtext :is(code,pre) { font-family: ui-monospace, monospace; background: var(--muted); border-radius: 4px; }.bot-richtext code { padding: 1px 3px; }.bot-richtext pre { padding: 8px; white-space: pre; }.bot-richtext pre code { padding: 0; background: transparent; }
 .bot-chart-data { margin-top: 6px; }.bot-chart-data summary { cursor: pointer; color: var(--muted-foreground); font-size: 12px; }.bot-chart-data [data-slot="table-container"] { max-height: 240px; overflow: auto; }.bot-category-legend { display: flex; flex-wrap: wrap; gap: 5px 12px; justify-content: center; font-size: 11px; color: var(--muted-foreground); }.bot-category-legend span { display: inline-flex; align-items: center; gap: 5px; }.bot-category-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+
+.board-workspace { height: 100svh; width: 100%; position: relative; overflow: hidden; background: var(--background); }
+.board-workspace:fullscreen { height: 100vh; width: 100vw; }
+.board-toolbar { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 16px; background: rgba(9,17,29,.78); border-top: 1px solid var(--border); }
+.board-tabs { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.board-tab { flex: 0 0 auto; max-width: 240px; padding: 6px 12px; border-radius: 5px; font-size: 13px; color: var(--muted-foreground); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.board-tab:hover { background: var(--secondary); color: var(--foreground); }
+.board-tab[aria-selected='true'] { background: var(--secondary); color: var(--foreground); box-shadow: inset 0 -2px var(--chart-1); }
+.board-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.board-tools { display: flex; align-items: center; gap: 2px; border-right: 1px solid var(--border); padding-right: 8px; }
+.board-toolbar svg { width: 16px; height: 16px; }
+.board-dialog-form { display: flex; flex-direction: column; gap: 18px; }
+.board-name-label { display: grid; gap: 8px; }
+.board-loading { display: grid; place-items: center; height: 100%; color: var(--muted-foreground); }
+.board-workspace-error, .board-move-notice { display: flex; align-items: center; gap: 6px; background: var(--card); padding: 8px 16px; font-size: 13px; }
+.board-workspace-error { position: absolute; bottom: 20px; left: 20px; z-index: 40; max-width: calc(100% - 40px); color: var(--destructive); border: 1px solid var(--border); border-radius: var(--radius); }
+.board-workspace-error button { margin-left: 12px; padding: 0 4px; }
+.board-move-notice a { color: var(--chart-1); text-decoration: underline; }
+.card-board-select { min-width: 65px; max-width: 115px; height: 28px; padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--foreground); font-size: 11px; }
+.presentation-stage { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(rgba(5,13,25,.15),rgba(5,13,25,.32)),url('./board-background.png') center / cover, #0b1320; touch-action: none; }
+.presentation-panel { position: absolute; inset: 0; overflow: hidden; }
+.presentation-canvas { position: absolute; inset: 0; transform-origin: 0 0; }
+.presentation-card { position: absolute; }
+.presentation-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted-foreground); font-size: 22px; }
+.presentation-shield { position: absolute; inset: 0; z-index: 20; touch-action: none; }
+.presentation-stop { position: absolute; top: 16px; right: 16px; z-index: 30; opacity: 1; }
+.presentation-stop-hidden { opacity: 0; pointer-events: none; }
+.presentation-stop:focus { opacity: 1; pointer-events: auto; }
+.presentation-outgoing { animation: board-slide-out 300ms linear both; }
+.presentation-incoming { animation: board-slide-in 300ms linear both; }
+@keyframes board-slide-out { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes board-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (max-width: 560px) { .board-toolbar { padding-inline: 8px; gap: 4px; } .board-tools { padding-right: 4px; } .board-tab { max-width: 150px; padding-inline: 10px; } }
+
+.board-toolbar-navigation { display: contents; }
+
+.presentation-preloaded { visibility: hidden; }
+
+.presentation-stop { transition: none; }
