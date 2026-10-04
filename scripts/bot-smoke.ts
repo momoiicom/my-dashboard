@@ -369,6 +369,41 @@ try {
           401
         )
       }
+      await prisma.dashboardCard.create({
+        data: {
+          ownerId,
+          title: "Vertical boundary",
+          x: 20,
+          y: 9620,
+          width: 480,
+          height: 360,
+        },
+      })
+      const edge = await put("limit-edge")
+      assert.equal(edge.status, 201)
+      const edgeCard = (await edge.json()).card
+      assert.equal(edgeCard.y, 10000)
+      for (const key of ["overflow-one", "overflow-two"]) {
+        const overflow = await put(key)
+        assert.equal(overflow.status, 409, "Full boards must reject new cards")
+        assert.equal(
+          await prisma.dashboardCard.count({
+            where: { ownerId, externalKey: key },
+          }),
+          0,
+          "Rejected creation must not persist an overlapping card"
+        )
+      }
+      const edgeUpdate = await put("limit-edge", {
+        ...BOT_EXAMPLE,
+        title: "Updated at capacity",
+      })
+      assert.equal(edgeUpdate.status, 200)
+      const updatedEdge = (await edgeUpdate.json()).card
+      assert.equal(updatedEdge.id, edgeCard.id)
+      assert.equal(updatedEdge.y, 10000)
+      assert.equal(updatedEdge.title, "Updated at capacity")
+      assert.equal(updatedEdge.contentRevision, 2)
       console.log(
         `${mode} API passed token convergence/recovery, cookie/bearer isolation, simultaneous first-write idempotency, latest-only geometry-preserving updates, safe markup, rejection retention and streaming limits`
       )

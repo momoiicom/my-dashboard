@@ -203,13 +203,15 @@ export async function putBotCard(
           where: { ownerId },
           select: { y: true, height: true },
         })
-        const nextY = Math.min(
-          10000,
-          geometry.reduce(
-            (bottom, card) => Math.max(bottom, card.y + card.height + 20),
-            20
-          )
+        const nextY = geometry.reduce(
+          (bottom, card) => Math.max(bottom, card.y + card.height + 20),
+          20
         )
+        if (nextY > 10000)
+          throw new BotHttpError(
+            409,
+            "No space below existing cards. Ask the user to move or remove cards, then retry."
+          )
         const card = await tx.dashboardCard.create({
           data: {
             ownerId,

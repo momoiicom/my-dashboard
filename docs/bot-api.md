@@ -14,7 +14,7 @@ Tokens are generated automatically and are stable when reopening the dialog. Con
 
 Send `Authorization: Bearer <token>` to `GET /api/bot/capabilities`. The response contains a generated recursive JSON schema, limits, each component's schema and validated examples, a complete document example and the cross-field constraints that JSON schema cannot represent. The catalog is generated from the actual Zod validators in `lib/bot-document.ts`.
 
-Send a complete document as JSON to `PUT /api/bot/cards/<cardId>`. A key matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$` and is scoped to the authenticated owner. A new key returns 201. Replacing the same key returns 200 and keeps the database id, position and size. Equivalent canonical payload retries leave the content revision and accepted-at time unchanged. Changed payloads atomically replace the previous document and increment the revision. No history is retained. A deleted key may be recreated by a later PUT.
+Send a complete document as JSON to `PUT /api/bot/cards/<cardId>`. A key matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$` and is scoped to the authenticated owner. A new key returns 201. New cards start below existing cards; creation returns 409 if this would exceed the board's maximum y coordinate of 10,000. Ask the user to move or remove cards before retrying. Updates to existing keys remain available at capacity. Replacing the same key returns 200 and keeps the database id, position and size. Equivalent canonical payload retries leave the content revision and accepted-at time unchanged. Changed payloads atomically replace the previous document and increment the revision. No history is retained. A deleted key may be recreated by a later PUT.
 
 The document envelope uses `schemaVersion: "1"`, a title of 1–120 characters, optional ISO datetime `updatedAt`, optional `layout: {direction: "vertical" | "horizontal", gap: "small" | "medium" | "large"}` and a nonempty `components` array. Layout defaults to vertical/medium. `updatedAt` describes the bot's source time. The separate server `acceptedAt` records the last accepted change.
 
@@ -55,6 +55,7 @@ Bodies are capped at 128 KiB while streaming, even without Content-Length. Limit
 | 400 | Malformed JSON or invalid stable key |
 | 401 | Missing or invalid bot token; browser session cannot substitute |
 | 403 | Browser connection Origin rejected, or attempted browser title edit on a bot card |
+| 409 | No vertical space for a new card; existing keys can still update |
 | 413 | Body exceeds 128 KiB |
 | 415 | Content-Type must be application/json |
 | 422 | Invalid document, with at most 25 `issues: [{path,message}]` |
