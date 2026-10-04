@@ -130,6 +130,7 @@ model BoardGrant {
   @@unique([boardId, email])
   @@unique([boardId, userId])
   @@index([email])
+  @@index([userId, createdAt, id])
 }
 
 model CardLayout {

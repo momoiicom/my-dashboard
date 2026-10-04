@@ -43,6 +43,6 @@ export async function effectiveBoardSnapshot(tx: Prisma.TransactionClient, acces
     const override = byId.get(card.id)
     return { ...serializeCard(card), ...(override ? { x: override.x, y: override.y, width: override.width, height: override.height } : {}), layoutSource: override ? "personal" as const : "author" as const }
   })
-  const layoutToken = createHash("sha256").update(JSON.stringify(cards.map(card => [card.id, card.x, card.y, card.width, card.height, card.layoutSource]))).digest("hex")
+  const layoutToken = createHash("sha256").update(JSON.stringify(cards.map(card => [card.id, card.membershipRevision, card.x, card.y, card.width, card.height, card.layoutSource]))).digest("hex")
   return { board: { id: board.id, name: board.name, isOriginal: role === "author" && board.originalOwnerId !== null, createdAt: board.createdAt.toISOString(), role, author: board.owner }, cards, layoutToken, role }
 }

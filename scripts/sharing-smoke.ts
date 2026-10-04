@@ -262,6 +262,26 @@ try {
   const claimedCookie = `next-auth.session-token=${await encode({ token: { sub: replacement.id, email: first.email, googleVerified: true }, secret })}`
   assert.equal((await request(cardsPath, "GET", undefined, { id: replacement.id, email: first.email, cookie: claimedCookie })).status, 404,
     "Another account cannot inherit a bound grant by presenting the old email")
+  const membershipBoard = (await body<{ board: { id: string } }>(await request("/api/boards", "POST", { name: "Membership fence probe" }))).board.id
+  const membershipCards = `/api/boards/${membershipBoard}/cards`
+  const membershipCard = (await body<{ card: Card }>(await request(membershipCards, "POST", { title: "Returned card", x: 20, y: 20, width: 400, height: 260 }))).card
+  assert.equal((await request(`/api/boards/${membershipBoard}/shares`, "POST", { email: replacementEmail })).status, 200)
+  const authorBeforeMove = await body<Snapshot>(await request(membershipCards))
+  const viewerBeforeMove = await body<Snapshot>(await request(membershipCards, "GET", undefined, first))
+  const temporaryDestination = (await body<{ board: { id: string } }>(await request("/api/boards", "POST", { name: "Membership destination" }))).board.id
+  for (const [sourceBoardId, destinationBoardId] of [[membershipBoard, temporaryDestination], [temporaryDestination, membershipBoard]])
+    assert.equal((await request(`/api/cards/${membershipCard.id}/move`, "POST", { sourceBoardId, destinationBoardId })).status, 200)
+  const returnedAuthor = await body<Snapshot>(await request(membershipCards))
+  assert.deepEqual(returnedAuthor.cards.map(geometry), authorBeforeMove.cards.map(geometry), "Round-trip membership can return to identical geometry")
+  assert.equal(returnedAuthor.cards[0].membershipRevision, membershipCard.membershipRevision + 2)
+  for (const [who, prior] of [[author, authorBeforeMove], [first, viewerBeforeMove]] as const) {
+    const before = await body<Snapshot>(await request(membershipCards, "GET", undefined, who))
+    const stale = await request(`/api/boards/${membershipBoard}/layout`, "PUT", { expectedLayoutToken: prior.layoutToken, positions: [{ cardId: membershipCard.id, x: 40, y: 60 }] }, who)
+    assert.equal(stale.status, 409, "A round-trip membership change must reject the old layout token")
+    const after = await body<Snapshot>(await request(membershipCards, "GET", undefined, who))
+    assert.deepEqual(after.cards.map(geometry), before.cards.map(geometry), "Rejected old-membership batches leave every geometry unchanged")
+    assert.deepEqual(after.cards.map(card => card.layoutSource), before.cards.map(card => card.layoutSource))
+  }
   console.log("Private sharing, isolation, geometry, layout conflicts, and revocation: passed")
   if (process.argv.includes("--browser")) {
     const compiled = join(process.cwd(), ".e2e/sharing/suite.mjs")

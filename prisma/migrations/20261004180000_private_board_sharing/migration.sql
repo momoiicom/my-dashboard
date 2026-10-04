@@ -12,6 +12,7 @@ CREATE TABLE "BoardGrant" (
 CREATE UNIQUE INDEX "BoardGrant_boardId_email_key" ON "BoardGrant"("boardId", "email");
 CREATE UNIQUE INDEX "BoardGrant_boardId_userId_key" ON "BoardGrant"("boardId", "userId");
 CREATE INDEX "BoardGrant_email_idx" ON "BoardGrant"("email");
+CREATE INDEX "BoardGrant_userId_createdAt_id_idx" ON "BoardGrant"("userId", "createdAt", "id");
 
 CREATE TABLE "CardLayout" (
   "userId" TEXT NOT NULL,

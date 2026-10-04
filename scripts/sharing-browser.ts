@@ -75,6 +75,43 @@ try {
   await sharing.getByText("pending-browser@example.test", { exact: true }).waitFor()
   await author.screenshot({ path: resolve(screenshotDir, "sharing-dialog.png"), fullPage: true })
   await sharing.getByRole("button", { name: "Close", exact: true }).click()
+  for (const method of ["GET", "POST", "DELETE"] as const) {
+    let releaseRequest!: () => void
+    let requestArrived!: () => void
+    const receivedRequest = new Promise<void>(resolve => { requestArrived = resolve })
+    const blockedRequest = new Promise<void>(resolve => { releaseRequest = resolve })
+    const sharesRoute = `**/api/boards/${boardId}/shares${method === "DELETE" ? "/*" : ""}`
+    await author.route(sharesRoute, async route => {
+      if (route.request().method() !== method) { await route.continue(); return }
+      requestArrived()
+      await blockedRequest
+      await route.continue().catch(() => {})
+    })
+    try {
+      await author.locator('summary[aria-label="Board options"]').click()
+      await author.getByRole("button", { name: "Sharing", exact: true }).click()
+      if (method !== "GET") {
+        await sharing.getByText(firstEmail, { exact: true }).waitFor()
+        if (method === "POST") {
+          await sharing.getByLabel("Email address").fill("stalled-browser@example.test")
+          await sharing.getByRole("button", { name: "Add access" }).click()
+        } else await sharing.getByRole("button", { name: `Remove access for ${firstEmail}` }).click()
+      }
+      await receivedRequest
+      const cancelled = author.waitForEvent("requestfailed", {
+        predicate: request => request.method() === method && request.url().includes(`/api/boards/${boardId}/shares`), timeout: 2500,
+      })
+      void cancelled.catch(() => {})
+      if (method === "POST") await author.keyboard.press("Escape")
+      else await sharing.getByRole("button", { name: "Close", exact: true }).click()
+      await sharing.waitFor({ state: "hidden", timeout: 1500 })
+      await cancelled
+      assert.equal(new URL(author.url()).pathname, path, "Closing stalled sharing restores the same board")
+    } finally {
+      releaseRequest()
+      await author.unroute(sharesRoute)
+    }
+  }
   await first.getByRole("button", { name: "Customize my layout" }).click()
   const handle = first.getByRole("button", { name: /Move or resize Shared browser card/ })
   await handle.press("ArrowRight")

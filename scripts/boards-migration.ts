@@ -216,6 +216,9 @@ try {
       "Legacy migration grants no shared access")
     assert.equal((migrated.prepare('SELECT COUNT(*) AS count FROM "CardLayout"').get() as { count: number }).count, 0,
       "Legacy geometry remains canonical without viewer overrides")
+    const workspacePlan = migrated.prepare('EXPLAIN QUERY PLAN SELECT g."id" FROM "BoardGrant" AS g JOIN "Board" AS b ON b."id" = g."boardId" WHERE g."userId" = ? AND b."ownerId" <> ? ORDER BY g."createdAt", g."id"').all(ownerId, ownerId) as Array<{ detail: string }>
+    assert(workspacePlan.some(step => /SEARCH g USING INDEX BoardGrant_userId_createdAt_id_idx/.test(step.detail)),
+      `Workspace grant polling must use its user-leading index: ${workspacePlan.map(step => step.detail).join("; ")}`)
     const foreignBoard = boards.find((board) => board.ownerId === otherOwnerId)!
     assert.throws(
       () =>
