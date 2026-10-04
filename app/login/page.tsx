@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/card"
 import { SignInButton } from "@/components/sign-in-button"
 import { authOptions } from "@/lib/auth"
+import { localUiMode } from "@/lib/local-ui-mode"
 
 export default async function LoginPage() {
+  if (localUiMode()) redirect("/")
   if (process.env.NEXTAUTH_SECRET && process.env.DATABASE_URL) {
     const session = await getServerSession(authOptions)
     if (session?.user?.id?.trim()) redirect("/")
