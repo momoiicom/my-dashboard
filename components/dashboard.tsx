@@ -5,11 +5,10 @@ import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "cn"
-import { SignOutButton } from "@/components/sign-out-button"
+import { AccountMenu } from "@/components/account-menu"
 import { cardKindDetails } from "@/lib/card-kinds"
 import { BotCardRenderer } from "@/components/bot-card-renderer"
 import { ConnectBotDialog } from "@/components/connect-bot-dialog"
@@ -160,27 +159,22 @@ export function Dashboard({ initialCards, name, image, localUiMode = false }: {
   return (
     <main className="dashboard-shell">
       <header className="dashboard-topbar">
-        <div className="dashboard-brand"><span className="dashboard-brand-mark" aria-hidden="true">▦</span><strong>My dashboard</strong></div>
+        <div className="dashboard-brand"><span className="dashboard-brand-mark" aria-hidden="true">▦</span><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">{localUiMode ? "Local" : "Private"}</Badge></div>
+        <div className="dashboard-actions">
+          <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
+          <Button size="sm" variant="outline" onClick={() => setConnectOpen(true)}>Connect your bot</Button>
+          <Button size="sm" disabled={isSigningOut} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
+        </div>
         <div className="dashboard-account">
-          <Avatar size="sm" className="dashboard-avatar">{image && <AvatarImage src={image} alt="" referrerPolicy="no-referrer" />}<AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback></Avatar>
-          <span className="dashboard-account-name">{name}</span>
-          {!localUiMode && <SignOutButton onPendingChange={setIsSigningOut} beforeSignOut={() => {
+          <AccountMenu name={name} image={image} localUiMode={localUiMode} onPendingChange={setIsSigningOut} beforeSignOut={() => {
             setMode("view")
             return new Promise<void>((resolve) => {
               if (!busy.current && pendingActions.current.length === 0) resolve()
               else idleWaiters.current.push(resolve)
             })
-          }} />}
+          }} />
         </div>
       </header>
-      <div className="dashboard-toolbar">
-        <div className="dashboard-toolbar-title"><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">{localUiMode ? "Local" : "Private"}</Badge></div>
-        <div className="dashboard-toolbar-actions">
-          <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : "Saved"}</span>
-          <Button size="sm" variant="outline" onClick={() => setConnectOpen(true)}>Connect your bot</Button>
-          <Button size="sm" disabled={isSigningOut} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
-        </div>
-      </div>
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
       <div className="dashboard-scroll">
         <div className={cn("dashboard-canvas", isEditing && "dashboard-canvas-editing")} style={{ minWidth: canvasWidth, minHeight: canvasHeight }}>
