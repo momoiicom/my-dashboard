@@ -1,6 +1,8 @@
 import type { CardRecord } from "./dashboard-card"
 
 export type BoardRecord = {
+  role?: "author" | "viewer"
+  author?: { name: string | null; email: string | null }
   id: string
   name: string
   isOriginal: boolean
@@ -10,7 +12,7 @@ export type WorkspaceSnapshot = {
   boards: BoardRecord[]
   originalBoardId: string
 }
-export type BoardSnapshot = { board: BoardRecord; cards: CardRecord[] }
+export type BoardSnapshot = { board: BoardRecord; cards: CardRecord[]; layoutToken?: string; role?: "author" | "viewer" }
 export type MoveInput = { sourceBoardId: string; destinationBoardId: string }
 export type MoveResult = { card: CardRecord; moved: boolean }
 

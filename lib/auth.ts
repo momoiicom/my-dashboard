@@ -21,13 +21,21 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   pages: { signIn: "/login" },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
+      if (user?.id && account?.provider === "google") {
+        const google = profile as { email?: unknown; email_verified?: unknown } | undefined
+        const verifiedEmail = google?.email_verified === true && typeof google.email === "string"
+          ? google.email.trim().toLowerCase() : null
+        await prisma.user.update({ where: { id: user.id }, data: { googleVerifiedEmail: verifiedEmail } })
+        token.googleVerified = verifiedEmail !== null
+      }
       if (user?.id) token.sub = user.id
       return token
     },
     async session({ session, token }) {
       if (session.user && typeof token.sub === "string" && token.sub.trim())
         session.user.id = token.sub
+      if (session.user) session.user.googleVerified = token.googleVerified === true
       return session
     },
   },

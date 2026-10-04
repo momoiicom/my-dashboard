@@ -4,9 +4,9 @@ import { getServerSession } from "next-auth"
 import { authOptions, localUiUser } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
-export async function cardOwnerId() {
+export async function cardIdentity() {
   const localUser = await localUiUser()
-  if (localUser) return localUser.id
+  if (localUser) return { id: localUser.id, verifiedGoogle: false }
   if (!process.env.NEXTAUTH_SECRET || !process.env.DATABASE_URL) return null
   const session = await getServerSession(authOptions)
   const id = session?.user?.id?.trim()
@@ -15,8 +15,10 @@ export async function cardOwnerId() {
     where: { id },
     select: { id: true },
   })
-  return owner?.id || null
+  return owner ? { id: owner.id, verifiedGoogle: session?.user?.googleVerified === true } : null
 }
+
+export async function cardOwnerId() { return (await cardIdentity())?.id ?? null }
 
 export function mutationError(request: Request) {
   const expectedOrigin = new URL(process.env.NEXTAUTH_URL || request.url).origin
@@ -46,7 +48,7 @@ export async function jsonBody(request: Request) {
 export function storageResponse(value: unknown, status = 200) {
   return Response.json(value, {
     status,
-    headers: { "Cache-Control": "no-store" },
+    headers: { "Cache-Control": "private, no-store" },
   })
 }
 
@@ -58,16 +60,16 @@ export function storageError(error: unknown) {
 
 export async function browserRoute(
   request: Request | undefined,
-  handle: (ownerId: string) => Promise<Response>
+  handle: (ownerId: string, verifiedGoogle: boolean) => Promise<Response>
 ) {
   try {
-    const ownerId = await cardOwnerId()
-    if (!ownerId) return storageResponse({ error: "Unauthorized" }, 401)
+    const identity = await cardIdentity()
+    if (!identity) return storageResponse({ error: "Unauthorized" }, 401)
     if (request && request.method !== "GET") {
       const guard = mutationError(request)
       if (guard) return guard
     }
-    return await handle(ownerId)
+    return await handle(identity.id, identity.verifiedGoogle)
   } catch (error) {
     return storageError(error)
   }

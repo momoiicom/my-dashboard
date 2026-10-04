@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { Play } from "lucide-react"
-import { boardHref, type BoardRecord } from "@/lib/board"
+import { arrange } from "@/lib/arrange"
+import { boardHref, type BoardSnapshot, type BoardRecord } from "@/lib/board"
 import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
@@ -28,7 +29,10 @@ const clamp = (value: number, minimum: number, maximum: number) =>
 const snap = (value: number, minimum: number, maximum: number) =>
   clamp(Math.round(value / GRID_SIZE) * GRID_SIZE, minimum, maximum)
 
-export function Dashboard({ initialCards, name, image, localUiMode = false, boardId, boards, boardToolbar, onPlay, initialConnectOpen, onConnectClosed }: {
+export function Dashboard({ initialCards, name, image, localUiMode = false, boardId, boards, boardToolbar, onPlay, initialConnectOpen, onConnectClosed, role = "author", initialLayoutToken, onAccessRemoved }: {
+  role?: "author" | "viewer"
+  initialLayoutToken?: string
+  onAccessRemoved: (boardId: string) => void
   initialConnectOpen: boolean
   onConnectClosed: () => void
   boardId: string
@@ -40,6 +44,10 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
   image?: string | null
   localUiMode?: boolean
 }) {
+  const scroll = useRef<HTMLDivElement>(null)
+  const layoutToken = useRef(initialLayoutToken)
+  const [mutationPending, setMutationPending] = useState(false)
+  const isViewer = role === "viewer"
   const [cards, setCards] = useState(initialCards)
   const [connectOpen, setConnectOpen] = useState(initialConnectOpen)
   const requestEpoch = useRef(0)
@@ -62,6 +70,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
   const finishMutation = () => {
     requestEpoch.current++
     busy.current = false
+    if (mounted.current) setMutationPending(false)
     if (!mounted.current) { pendingActions.current = []; return }
     const next = pendingActions.current.shift()
     if (next) next()
@@ -80,7 +89,12 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       body: body ? JSON.stringify(body) : undefined,
     })
     const result = await response.json().catch(() => null)
-    if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "Could not save. Please try again.")
+    if (!response.ok) {
+      if (response.status === 404 && isViewer && mounted.current) onAccessRemoved(boardId)
+      const failure = new Error(typeof result?.error === "string" ? result.error : "Could not save. Please try again.") as Error & { status: number }
+      failure.status = response.status
+      throw failure
+    }
     return result
   }
 
@@ -105,11 +119,14 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       return
     }
     busy.current = true
+    setMutationPending(true)
     updateCards(next)
     setSaveState("saving")
     setError("")
     try {
-      await mutate(`/api/boards/${encodeURIComponent(boardId)}/cards/${encodeURIComponent(id)}`, "PATCH", { patch: resolved, membershipRevision: current.membershipRevision })
+      const result = await mutate(`/api/boards/${encodeURIComponent(boardId)}/cards/${encodeURIComponent(id)}`, "PATCH", { patch: resolved, membershipRevision: current.membershipRevision })
+      if (mounted.current && result.card) updateCards(cardsRef.current.map(card => card.id === id ? result.card : card))
+      layoutToken.current = undefined
       if (!mounted.current) return
       setSaveState("saved")
     } catch (cause) {
@@ -133,11 +150,13 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
     const current = cardsRef.current.find(card => card.id === id)
     if (!current) { finishMutation(); return }
     busy.current = true
+    setMutationPending(true)
     setSaveState("saving")
     setError("")
     try {
       await mutate(`/api/boards/${encodeURIComponent(boardId)}/cards/${encodeURIComponent(id)}`, "DELETE", { membershipRevision: current.membershipRevision })
       if (!mounted.current) return
+      layoutToken.current = undefined
       updateCards(cardsRef.current.filter((card) => card.id !== id))
       setSaveState("saved")
     } catch (cause) {
@@ -153,6 +172,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
     if (busy.current || gesture.current || !mounted.current || destinationBoardId === boardId) return
     requestEpoch.current++
     busy.current = true
+    setMutationPending(true)
     setSaveState("saving")
     setError("")
     setMovedTo(null)
@@ -160,6 +180,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       await mutate(`/api/cards/${encodeURIComponent(id)}/move`, "POST", { sourceBoardId: boardId, destinationBoardId })
       if (!mounted.current) return
       requestEpoch.current++
+      layoutToken.current = undefined
       updateCards(cardsRef.current.filter(card => card.id !== id))
       setMovedTo(boards.find(board => board.id === destinationBoardId) || null)
       setSaveState("saved")
@@ -190,15 +211,12 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       const epoch = requestEpoch.current
       try {
         const response = await fetch(`/api/boards/${encodeURIComponent(boardId)}/cards`, { cache: "no-store", credentials: "same-origin", signal: controller.signal })
-        if (!response.ok) return
-        const result = await response.json() as { cards: CardRecord[] }
         if (!active || epoch !== requestEpoch.current || busy.current || pendingActions.current.length || gesture.current) return
-        const local = new Map(cardsRef.current.map((card) => [card.id, card]))
-        const merged = result.cards.map((remote) => {
-          const existing = local.get(remote.id)
-          return existing && existing.membershipRevision === remote.membershipRevision ? { ...existing, title: remote.title, kind: remote.kind, externalKey: remote.externalKey ?? null, payload: remote.payload ?? null, acceptedAt: remote.acceptedAt ?? null, contentRevision: remote.contentRevision ?? 0 } : remote
-        })
-        if (JSON.stringify(merged) !== JSON.stringify(cardsRef.current)) updateCards(merged)
+        if (!response.ok) { if (response.status === 404 && isViewer) onAccessRemoved(boardId); return }
+        const result = await response.json() as BoardSnapshot
+        if (!active || epoch !== requestEpoch.current || busy.current || pendingActions.current.length || gesture.current) return
+        layoutToken.current = result.layoutToken
+        if (JSON.stringify(result.cards) !== JSON.stringify(cardsRef.current)) updateCards(result.cards)
       } catch {}
       finally { polling.current = false }
     }
@@ -206,7 +224,53 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
     const visible = () => { if (document.visibilityState === "visible") void refresh() }
     document.addEventListener("visibilitychange", visible)
     return () => { active = false; controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", visible) }
-  }, [boardId])
+  }, [boardId, isViewer, onAccessRemoved])
+
+  async function saveLayout(reset = false) {
+    if (busy.current || pendingActions.current.length || gesture.current || !mounted.current) return
+    let positions
+    try { if (!reset) positions = arrange(cardsRef.current, scroll.current?.clientWidth ?? 0) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not arrange cards."); return }
+    requestEpoch.current++
+    busy.current = true
+    setMutationPending(true)
+    setSaveState("saving")
+    setError("")
+    try {
+      if (!reset && !layoutToken.current) {
+        const response = await fetch(`/api/boards/${encodeURIComponent(boardId)}/cards`, { cache: "no-store" })
+        const snapshot = await response.json() as BoardSnapshot
+        if (!response.ok) { if (response.status === 404 && isViewer) onAccessRemoved(boardId); throw new Error("Could not refresh the layout.") }
+        const geometry = (values: CardRecord[]) => JSON.stringify(values.map(card => [card.id, card.x, card.y, card.width, card.height]))
+        if (geometry(snapshot.cards) !== geometry(cardsRef.current)) {
+          if (mounted.current) updateCards(snapshot.cards)
+          layoutToken.current = snapshot.layoutToken
+          throw new Error("The layout changed. Review the refreshed board and click Auto-layout again.")
+        }
+        layoutToken.current = snapshot.layoutToken
+      }
+      const result = await mutate(`/api/boards/${encodeURIComponent(boardId)}/layout`, reset ? "DELETE" : "PUT", reset ? {} : { expectedLayoutToken: layoutToken.current, positions }) as BoardSnapshot
+      if (!mounted.current) return
+      updateCards(result.cards)
+      layoutToken.current = result.layoutToken
+      setSaveState("saved")
+    } catch (cause) {
+      if (!mounted.current) return
+      if ((cause as Error & { status?: number }).status === 409) {
+        try {
+          const response = await fetch(`/api/boards/${encodeURIComponent(boardId)}/cards`, { cache: "no-store" })
+          if (response.status === 404 && isViewer) onAccessRemoved(boardId)
+          if (response.ok && mounted.current) {
+            const snapshot = await response.json() as BoardSnapshot
+            updateCards(snapshot.cards)
+            layoutToken.current = snapshot.layoutToken
+          }
+        } catch {}
+      }
+      setSaveState("error")
+      setError(cause instanceof Error ? `${cause.message}${(cause as Error & { status?: number }).status === 409 ? " Review the refreshed board and click Auto-layout again." : ""}` : "Could not save layout.")
+    } finally { finishMutation() }
+  }
 
   const canvasWidth = Math.max(1200, ...cards.map((card) => card.x + card.width + 32))
   const canvasHeight = Math.max(900, ...cards.map((card) => card.y + card.height + 32))
@@ -217,8 +281,10 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
         <div className="dashboard-brand"><span className="dashboard-brand-mark" aria-hidden="true">▦</span><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">{localUiMode ? "Local" : "Private"}</Badge></div>
         <div className="dashboard-actions">
           <span className={cn("dashboard-save", `dashboard-save-${saveState}`)} role="status" aria-live="polite">{saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed" : saveState === "saved" ? "Saved" : ""}</span>
-          <Button size="sm" variant="outline" onClick={() => setConnectOpen(true)}>Connect your bot</Button>
-          <Button size="sm" disabled={isSigningOut} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : "Edit layout"}</Button>
+          {!isViewer && <Button size="sm" variant="outline" onClick={() => setConnectOpen(true)}>Connect your bot</Button>}
+          {isEditing && <Button size="sm" variant="outline" disabled={!cards.length || hasGesture || mutationPending || isSigningOut} onClick={() => void saveLayout()}>Auto-layout</Button>}
+          {isEditing && isViewer && <Button size="sm" variant="outline" disabled={hasGesture || mutationPending || isSigningOut} onClick={() => void saveLayout(true)}>Reset to author’s layout</Button>}
+          <Button size="sm" disabled={isSigningOut || hasGesture || mutationPending} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : isViewer ? "Customize my layout" : "Edit layout"}</Button>
         </div>
         <div className="dashboard-account">
           <AccountMenu name={name} image={image} localUiMode={localUiMode} onPendingChange={setIsSigningOut} beforeSignOut={() => {
@@ -237,9 +303,9 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       }}><Play aria-hidden="true" /></Button></div>
       {movedTo && <div className="board-move-notice" role="status" inert={hasGesture || saveState === "saving" || isSigningOut}>Card moved to <Link href={boardHref(movedTo.id)}>{movedTo.name}</Link>.</div>}
       {error && <Alert variant="destructive" className="dashboard-error"><AlertDescription>{error}</AlertDescription></Alert>}
-      <div className="dashboard-scroll">
+      <div ref={scroll} className="dashboard-scroll">
         <div className={cn("dashboard-canvas", isEditing && "dashboard-canvas-editing")} style={{ minWidth: canvasWidth, minHeight: canvasHeight }}>
-          {cards.length === 0 && <Empty className="dashboard-empty"><EmptyHeader><EmptyTitle>Your space is ready.</EmptyTitle><EmptyDescription>Connect a bot to fill this board with live content.</EmptyDescription></EmptyHeader></Empty>}
+          {cards.length === 0 && <Empty className="dashboard-empty"><EmptyHeader><EmptyTitle>Your space is ready.</EmptyTitle><EmptyDescription>{isViewer ? "The author has not added cards yet." : "Connect a bot to fill this board with live content."}</EmptyDescription></EmptyHeader></Empty>}
           {cards.map((card) => (
             <Rnd
               key={card.id}
@@ -298,10 +364,10 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
                     }}>
                     <span className="dashboard-grip" aria-hidden="true">⠿</span><span className="dashboard-card-label">{!card.kind || card.kind === "blank" ? "Card" : cardKindDetails[card.kind].label}</span>
                   </div>
-                  <select className="card-board-select" aria-label={`Board for ${card.title || "untitled card"}`} value={boardId} disabled={saveState === "saving" || hasGesture} onChange={event => void moveCard(card.id, event.target.value)}>
-                    {boards.map(board => <option key={board.id} value={board.id}>{board.name}</option>)}
-                  </select>
-                  <Button variant="ghost" size="icon-xs" aria-label={`Remove ${card.title || "untitled card"}`} title="Remove card" onClick={() => void removeCard(card.id)}>×</Button>
+                  {!isViewer && <select className="card-board-select" aria-label={`Board for ${card.title || "untitled card"}`} value={boardId} disabled={saveState === "saving" || hasGesture} onChange={event => void moveCard(card.id, event.target.value)}>
+                    {boards.filter(board => board.role !== "viewer").map(board => <option key={board.id} value={board.id}>{board.name}</option>)}
+                  </select>}
+                  {!isViewer && <Button variant="ghost" size="icon-xs" aria-label={`Remove ${card.title || "untitled card"}`} title="Remove card" onClick={() => void removeCard(card.id)}>×</Button>}
                 </CardHeader>}
                 <CardContent className="dashboard-card-content"><h2 className="dashboard-card-title">{card.title}</h2>{card.payload ? <BotCardRenderer document={card.payload} acceptedAt={card.acceptedAt} /> : card.kind && card.kind !== "blank" ? <Empty className="mt-4 min-h-20 flex-none rounded-md border border-border p-3"><EmptyDescription>{cardKindDetails[card.kind].empty}</EmptyDescription></Empty> : null}</CardContent>
                 {isEditing && <CardFooter className="dashboard-card-footer">Drag the top edge · Resize from the corner</CardFooter>}
@@ -315,7 +381,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
           ))}
         </div>
       </div>
-      {connectOpen && <ConnectBotDialog open={connectOpen} onOpenChange={open => { setConnectOpen(open); if (!open) onConnectClosed() }} />}
+      {!isViewer && connectOpen && <ConnectBotDialog open={connectOpen} onOpenChange={open => { setConnectOpen(open); if (!open) onConnectClosed() }} />}
     </main>
   )
 }

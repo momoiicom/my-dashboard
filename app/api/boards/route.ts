@@ -10,8 +10,8 @@ import { StorageError } from "@/lib/storage-error"
 export const runtime = "nodejs"
 
 export async function GET() {
-  return browserRoute(undefined, async (ownerId) =>
-    storageResponse(await getWorkspaceSnapshot(ownerId))
+  return browserRoute(undefined, async (ownerId, verifiedGoogle) =>
+    storageResponse(await getWorkspaceSnapshot(ownerId, verifiedGoogle))
   )
 }
 

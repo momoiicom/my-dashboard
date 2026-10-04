@@ -1,4 +1,5 @@
 import "server-only"
+import { requireBoardAccess, effectiveBoardSnapshot } from "@/lib/board-access"
 import type { Prisma } from "@/generated/prisma/client"
 import { parseBotDocument } from "@/lib/bot-document"
 import { requireBoard } from "@/lib/board-store"
@@ -87,10 +88,21 @@ export async function patchCard(
   boardId: string,
   id: string,
   membershipRevision: number,
-  patch: CardPatch
+  patch: CardPatch,
+  verifiedGoogle = false
 ) {
   return retryWrite(() =>
     prisma.$transaction(async (tx) => {
+      const access = await requireBoardAccess(tx, ownerId, boardId, verifiedGoogle)
+      if (access.role === "viewer") {
+        if (Object.keys(patch).some(key => !["x", "y", "width", "height"].includes(key))) throw new StorageError(403, "Viewers can only customize geometry")
+        const snapshot = await effectiveBoardSnapshot(tx, access)
+        const card = snapshot.cards.find(card => card.id === id)
+        if (!card || card.membershipRevision !== membershipRevision) throw new StorageError(409, "Card has moved; reload the board")
+        const geometry = { x: patch.x ?? card.x, y: patch.y ?? card.y, width: patch.width ?? card.width, height: patch.height ?? card.height }
+        await tx.cardLayout.upsert({ where: { userId_boardId_cardId: { userId: ownerId, boardId, cardId: id } }, create: { userId: ownerId, boardId, cardId: id, ...geometry }, update: geometry })
+        return { ...card, ...geometry, layoutSource: "personal" as const }
+      }
       const previous = await requireMembership(
         tx,
         ownerId,
@@ -182,6 +194,7 @@ export async function moveCard(
       if (sourceBoardId === destinationBoardId)
         return { card: serializeCard(previous), moved: false }
       const y = await nextCardY(tx, ownerId, destinationBoardId)
+      await tx.cardLayout.deleteMany({ where: { cardId: id } })
       const updated = await tx.dashboardCard.updateMany({
         where: {
           id,

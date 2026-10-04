@@ -13,6 +13,7 @@ export type CardInput = {
 }
 
 export type CardRecord = Omit<CardInput, "kind"> & {
+  layoutSource?: "author" | "personal"
   id: string
   boardId: string
   membershipRevision: number

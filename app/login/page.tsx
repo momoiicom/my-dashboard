@@ -16,13 +16,15 @@ import { localUiMode } from "@/lib/local-ui-mode"
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ callbackUrl?: string | string[] }>
+  searchParams: Promise<{ callbackUrl?: string | string[]; reauth?: string }>
 }) {
-  const callbackUrl = workspaceCallbackUrl((await searchParams).callbackUrl)
+  const params = await searchParams
+  const reauth = params.reauth === "1"
+  const callbackUrl = workspaceCallbackUrl(params.callbackUrl)
   if (localUiMode()) redirect(callbackUrl)
   if (process.env.NEXTAUTH_SECRET && process.env.DATABASE_URL) {
     const session = await getServerSession(authOptions)
-    if (session?.user?.id?.trim()) redirect(callbackUrl)
+    if (session?.user?.id?.trim() && !reauth) redirect(callbackUrl)
   }
 
   const configured = Boolean(
@@ -38,7 +40,7 @@ export default async function LoginPage({
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
           <CardDescription>
-            Use your Google account to open your private dashboard.
+            {reauth ? "Sign in again with Google to verify your email before opening shared boards." : "Use your Google account to open your private dashboard."}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

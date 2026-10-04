@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const normalized = name === null ? null : parseBoardName(name)
     if (name !== null && !normalized)
       throw new BotHttpError(400, "Invalid board name")
-    const workspace = await getWorkspaceSnapshot(ownerId)
+    const workspace = await getWorkspaceSnapshot(ownerId, false)
     return botResponse({
       ...workspace,
       boards: workspace.boards.filter(

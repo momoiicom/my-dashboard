@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Plus, Pencil, Trash2 } from "lucide-react"
+import { SharingDialog } from "@/components/sharing-dialog"
 import { Dashboard } from "@/components/dashboard"
 import { PresentationStage } from "@/components/presentation-stage"
 import { usePresentation } from "@/components/use-presentation"
@@ -35,6 +36,9 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
   const [onboardingBoardId, setOnboardingBoardId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState(initialWorkspace)
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null)
+  const snapshotRef = useRef<BoardSnapshot | null>(null)
+  useLayoutEffect(() => { snapshotRef.current = snapshot }, [snapshot])
+  const [sharingBoard, setSharingBoard] = useState<BoardRecord | null>(null)
   const [error, setError] = useState("")
   const [dialog, setDialog] = useState<BoardDialog | null>(null)
   const [boardName, setBoardName] = useState("")
@@ -44,7 +48,7 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
     onAdvance: useCallback((next: BoardSnapshot) => { expectedPath.current = boardHref(next.board.id) }, []),
     onStop: useCallback((last: BoardSnapshot, message?: string, deleted?: boolean) => {
       focusPlay.current = true
-      setSnapshot(last)
+      setSnapshot(deleted ? null : last)
       setError(message || "")
       const href = boardHref(deleted ? workspace.originalBoardId : last.board.id)
       expectedPath.current = href
@@ -91,6 +95,14 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
         const next = await response.json() as WorkspaceSnapshot
         if (live && version === metadataVersion.current && !boardMutationPending.current) {
           setWorkspace(next)
+          const displayed = snapshotRef.current
+          if (!presenting.current && displayed && window.location.pathname === boardHref(displayed.board.id) && !next.boards.some(board => board.id === displayed.board.id)) {
+            setError(displayed.board.role === "viewer" ? "Access to this shared board was removed." : "This board is no longer available.")
+            setSnapshot(null)
+            router.replace(boardHref(next.originalBoardId), { scroll: false })
+            router.refresh()
+            return
+          }
           setSnapshot(current => {
             const board = next.boards.find(board => board.id === current?.board.id)
             return current && board ? { ...current, board } : current
@@ -101,13 +113,24 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
     }
     const timer = setInterval(refresh, 3000)
     return () => { live = false; controller.abort(); clearInterval(timer) }
-  }, [])
+  }, [router])
 
   useEffect(() => {
     if (!active && snapshot && pathname === boardHref(snapshot.board.id) && !workspace.boards.some(board => board.id === snapshot.board.id)) {
       router.replace(boardHref(workspace.originalBoardId), { scroll: false })
+      router.refresh()
     }
   }, [active, snapshot, pathname, workspace, router])
+
+  const accessRemoved = useCallback((boardId: string) => {
+    setWorkspace(current => ({ ...current, boards: current.boards.filter(board => board.id !== boardId) }))
+    if (window.location.pathname !== boardHref(boardId)) return
+    setError("Access to this shared board was removed.")
+    setSnapshot(current => current?.board.id === boardId ? null : current)
+    expectedPath.current = boardHref(workspace.originalBoardId)
+    router.replace(boardHref(workspace.originalBoardId), { scroll: false })
+    router.refresh()
+  }, [router, workspace.originalBoardId])
 
   function openDialog(next: BoardDialog) {
     setBoardName(next.kind === "rename" ? next.board.name : "")
@@ -146,10 +169,10 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
       setPending(false)
     }
   }
-  const selected = snapshot && boardHref(snapshot.board.id) === pathname ? snapshot : null
+  const selected = snapshot && boardHref(snapshot.board.id) === pathname && workspace.boards.some(board => board.id === snapshot.board.id) ? snapshot : null
   const boardToolbar = <>
     <nav className="board-tabs" role="tablist" aria-label="Boards">
-      {workspace.boards.map((board, index) => <Link key={board.id} href={boardHref(board.id)} role="tab" aria-selected={selected?.board.id === board.id} tabIndex={selected?.board.id === board.id ? 0 : -1} className="board-tab" scroll={false} onKeyDown={event => {
+      {workspace.boards.map((board, index) => <Link key={board.id} href={boardHref(board.id)} role="tab" aria-selected={selected?.board.id === board.id} tabIndex={selected?.board.id === board.id ? 0 : -1} className={`board-tab${board.role === "viewer" ? " board-tab-shared" : ""}`} scroll={false} onKeyDown={event => {
         const count = workspace.boards.length
         const nextIndex = event.key === "ArrowRight" ? (index + 1) % count : event.key === "ArrowLeft" ? (index + count - 1) % count : event.key === "Home" ? 0 : event.key === "End" ? count - 1 : null
         if (nextIndex === null) return
@@ -157,25 +180,27 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
         const next = workspace.boards[nextIndex]
         host.current?.querySelector<HTMLAnchorElement>(`[href="${boardHref(next.id)}"]`)?.focus()
         router.push(boardHref(next.id), { scroll: false })
-      }}>{board.name}</Link>)}
+      }}><span className="board-tab-title">{board.name}</span>{board.role === "viewer" && <><span className="board-shared-badge">Shared</span><span className="board-author">{board.author?.name || board.author?.email || "Board author"}</span></>}</Link>)}
     </nav>
     <div className="board-tools">
       <Button size="icon-sm" variant="ghost" aria-label="Create board" title="Create board" onClick={() => openDialog({ kind: "create" })}><Plus /></Button>
-      <Button size="icon-sm" variant="ghost" aria-label="Rename board" title="Rename board" disabled={!selected} onClick={() => selected && openDialog({ kind: "rename", board: selected.board })}><Pencil /></Button>
-      <Button size="icon-sm" variant="ghost" aria-label="Delete board" title={selected?.board.isOriginal ? "The original board cannot be deleted" : "Delete board"} disabled={!selected || selected.board.isOriginal} onClick={() => selected && openDialog({ kind: "delete", board: selected.board })}><Trash2 /></Button>
+      <Button size="icon-sm" variant="ghost" aria-label="Rename board" title="Rename board" disabled={!selected || selected.board.role === "viewer"} onClick={() => selected && openDialog({ kind: "rename", board: selected.board })}><Pencil /></Button>
+      <Button size="icon-sm" variant="ghost" aria-label="Delete board" title={selected?.board.isOriginal ? "The original board cannot be deleted" : "Delete board"} disabled={!selected || selected.board.isOriginal || selected.board.role === "viewer"} onClick={() => selected && openDialog({ kind: "delete", board: selected.board })}><Trash2 /></Button>
+      {selected && selected.board.role !== "viewer" && <details className="board-tab-menu"><summary aria-label="Board options" title="Board options">•••</summary><div><button type="button" onClick={event => { setSharingBoard(selected.board); event.currentTarget.closest("details")?.removeAttribute("open") }}>Sharing</button></div></details>}
     </div>
   </>
   return <WorkspaceContext.Provider value={register}>
     <div ref={host} className="board-workspace" data-presenting={active}>
       {children}
       {error && !active && <div role="alert" className="board-workspace-error">{error}<button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
-      {!active && (selected ? <Dashboard key={selected.board.id} boardId={selected.board.id} initialCards={selected.cards} boards={workspace.boards} name={name} image={image} localUiMode={localUiMode} boardToolbar={boardToolbar} initialConnectOpen={onboardingBoardId === selected.board.id} onConnectClosed={() => setOnboardingBoardId(null)} onPlay={cards => {
+      {!active && (selected ? <Dashboard key={selected.board.id} boardId={selected.board.id} role={selected.board.role} initialLayoutToken={selected.layoutToken} onAccessRemoved={accessRemoved} initialCards={selected.cards} boards={workspace.boards} name={name} image={image} localUiMode={localUiMode} boardToolbar={boardToolbar} initialConnectOpen={onboardingBoardId === selected.board.id} onConnectClosed={() => setOnboardingBoardId(null)} onPlay={cards => {
         setError("")
         expectedPath.current = pathname
-        presentation.start({ board: selected.board, cards }, workspace.boards.map(board => board.id))
+        presentation.start({ ...selected, cards }, workspace.boards.map(board => board.id))
       }} /> : <div className="board-loading" role="status">Loading board…</div>)}
       {active && <PresentationStage state={presentation.state} stop={() => presentation.stop()} reveal={presentation.reveal} focusStop={presentation.focusStop} />}
     </div>
+    {sharingBoard && <SharingDialog key={sharingBoard.id} board={sharingBoard} onClose={() => setSharingBoard(null)} />}
     <Dialog open={dialog !== null} onOpenChange={open => { if (!open && !pending) setDialog(null) }}>
       <DialogContent><form onSubmit={saveBoard} className="board-dialog-form"><DialogHeader><DialogTitle>{dialog?.kind === "create" ? "Create board" : dialog?.kind === "rename" ? "Rename board" : "Delete board?"}</DialogTitle><DialogDescription>{dialog?.kind === "delete" ? `“${dialog.board.name}” and all cards on this board will be permanently deleted.` : "Give this board a name you and your bots can recognize."}</DialogDescription></DialogHeader>
         {dialog?.kind !== "delete" && <label className="board-name-label">Board name<Input autoFocus value={boardName} onChange={event => setBoardName(event.target.value)} required maxLength={240} disabled={pending} /></label>}
