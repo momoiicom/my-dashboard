@@ -57,7 +57,7 @@ try {
           BOT_TOKEN_SECRET:
             mode === "wrong-secret" ? "wrong-test-secret" : secret,
           NEXTAUTH_URL: base,
-          BOT_PUBLIC_BASE_URL: "",
+          BOT_PUBLIC_BASE_URL: mode === "local" ? base : "",
           LOCAL_UI_MODE: mode === "local" ? "true" : "false",
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -159,7 +159,19 @@ try {
         bundles.every((b) => b.token === token),
         "Concurrent connection calls converge to one recoverable token"
       )
-      assert.equal(bundles[0].localOnly, true)
+      const expectedBase =
+        mode === "local" ? base : "https://dashboard.momoii.com"
+      assert.equal(bundles[0].baseUrl, expectedBase)
+      assert.equal(
+        bundles[0].capabilitiesUrl,
+        `${expectedBase}/api/bot/capabilities`
+      )
+      assert.equal(
+        bundles[0].cardUrlTemplate,
+        `${expectedBase}/api/bot/cards/{cardId}`
+      )
+      assert.equal(bundles[0].localOnly, mode === "local")
+      assert(bundles[0].instructions.includes(`Base URL: ${expectedBase}`))
       assert(
         bundles[0].instructions.includes(token) &&
           bundles[0].instructions.includes('"schemaVersion": "1"')

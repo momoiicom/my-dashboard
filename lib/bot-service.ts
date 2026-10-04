@@ -91,11 +91,9 @@ export async function requireBotOwner(request: Request) {
     throw new BotHttpError(401, "A valid Bearer bot token is required")
   return record.ownerId
 }
-export async function connectionForOwner(ownerId: string, request: Request) {
+export async function connectionForOwner(ownerId: string) {
   const configured =
-    process.env.BOT_PUBLIC_BASE_URL ||
-    process.env.NEXTAUTH_URL ||
-    new URL(request.url).origin
+    process.env.BOT_PUBLIC_BASE_URL || "https://dashboard.momoii.com"
   let baseUrl: string
   try {
     const parsed = new URL(configured)
@@ -112,7 +110,7 @@ export async function connectionForOwner(ownerId: string, request: Request) {
   } catch {
     throw new BotHttpError(
       503,
-      "BOT_PUBLIC_BASE_URL/NEXTAUTH_URL must be an HTTP(S) origin without credentials, path, query or fragment"
+      "BOT_PUBLIC_BASE_URL must be an HTTP(S) origin without credentials, path, query or fragment"
     )
   }
   const proposed = `bot_${randomBytes(32).toString("base64url")}`
