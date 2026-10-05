@@ -77,3 +77,9 @@ The final [desktop Advanced editor](images/appearance/advanced-colors-desktop.pn
 The wallpaper test prepares a 46,164,873-byte source image as a 6,773,178-byte WebP before upload. It verifies photo orientation, dimensions, invalid images, and late Reset behavior. The sharing HTTP and browser checks also pass, including author-only account-menu Shares. The additive Advanced migration remains unapplied in production.
 
 `node --import tsx scripts/e2e.ts boards` passes with the normal Turbopack production build and an isolated browser server. The build retains the existing dynamic filesystem tracing warning. The regression checks exact dwell timing, left and right wraparound, arrow-induced pause, Space pause and resume, remaining dwell time, repeated keydown, reverse transitions, canceled target loads, deleted boards, reduced motion, unchanged history length, and restoration of the displayed board after Stop.
+
+## Slideshow transition input regression
+
+PR review found that an arrow pressed during a slide paused playback but discarded the requested direction. The new Chromium regression failed on the unchanged application with `page.waitForFunction: Timeout 5000ms exceeded` while waiting for the deferred navigation. The hook now retains the latest direction, invalidates stale target loads immediately, and navigates after the current slide commits its board and URL. It preserves the latest pause state, including Space resume before settlement.
+
+The complete `node --import tsx scripts/e2e.ts boards` run passes with the fix. New cases cover both arrow directions during a transition, rapid direction replacement, and Space resume before the queued move. Existing hidden-tab, Stop, canceled-load, reduced-motion and history checks also pass. The production build, TypeScript, focused ESLint and `git diff --check` pass. The rendered paused slideshow was inspected. These checks used a temporary database and loopback server; no production changes were made.

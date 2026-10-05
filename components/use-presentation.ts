@@ -56,6 +56,7 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
     let prefetchedId: string | null = null
     let checkingId: string | null = null
     let ready: BoardSnapshot | null = null
+    let pendingArrow: -1 | 1 | null = null
     const requests = new Set<AbortController>()
     const targetRequests = new Set<AbortController>()
     let targetGeneration = 0
@@ -64,6 +65,7 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
     const publish = () => { if (live()) setState(current) }
     const cancel = () => {
       retired = true
+      pendingArrow = null
       clearTimeout(timer)
       clearTimeout(pollTimer)
       requests.forEach(request => request.abort())
@@ -99,6 +101,18 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
         ready = null
       }
     }
+    const invalidateTargets = () => {
+      targetGeneration++
+      targetRequests.forEach(request => request.abort())
+      prefetchedId = null
+      checkingId = null
+      ready = null
+    }
+    const navigate = (direction: -1 | 1) => {
+      invalidateTargets()
+      reduce({ type: "navigate", runId: run.id, direction })
+      clock = performance.now()
+    }
     const requestTarget = async (id: string, final: boolean) => {
       const version = targetGeneration
       const controller = new AbortController()
@@ -126,6 +140,13 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
       if (!live()) return
       clearTimeout(timer)
       elapsed()
+      if (!current.hidden && current.phase.kind === "dwelling" && pendingArrow !== null) {
+        const direction = pendingArrow
+        const paused = current.paused
+        pendingArrow = null
+        navigate(direction)
+        reduce({ type: "pause", runId: run.id, paused })
+      }
       const nextId = nextBoardId(current)
       if (current.phase.kind === "waiting" && !nextId) {
         if (current.deleted.includes(current.phase.current.board.id)) { stop(true, "This board is no longer available."); return }
@@ -189,19 +210,12 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
         if (event.altKey || event.ctrlKey || event.metaKey) return
         event.preventDefault()
         if (!live() || current.hidden || event.repeat) return
+        const direction = event.key === "ArrowLeft" ? -1 : 1
         if (current.phase.kind === "sliding") {
+          pendingArrow = direction
+          invalidateTargets()
           reduce({ type: "pause", runId: run.id, paused: true })
-          controlsRemaining = CONTROLS_MS
-          pump()
-          return
-        }
-        targetGeneration++
-        targetRequests.forEach(request => request.abort())
-        prefetchedId = null
-        checkingId = null
-        ready = null
-        reduce({ type: "navigate", runId: run.id, direction: event.key === "ArrowLeft" ? -1 : 1 })
-        clock = performance.now()
+        } else navigate(direction)
         controlsRemaining = CONTROLS_MS
         pump()
       }
