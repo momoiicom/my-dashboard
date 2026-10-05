@@ -1,18 +1,19 @@
 import { cardIdentity, storageError, storageResponse } from "@/lib/card-route"
 import { getBoardSnapshot } from "@/lib/board-store"
 import { parseSaveAppearance } from "@/lib/appearance"
-import { saveAppearance } from "@/lib/appearance-store"
+import { getAppearanceTargets, saveAppearance } from "@/lib/appearance-store"
 import { StorageError } from "@/lib/storage-error"
 
 export const runtime = "nodejs"
 type Context = { params: Promise<{ boardId: string }> }
 const MAX_BODY = 10 * 1024 * 1024 + 64 * 1024
 
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   try {
     const identity = await cardIdentity()
     if (!identity) throw new StorageError(401, "Unauthorized")
     const { boardId } = await context.params
+    if (new URL(request.url).searchParams.get("all") === "true") return storageResponse({ targets: await getAppearanceTargets(identity, boardId) })
     const snapshot = await getBoardSnapshot(identity.id, boardId, identity.verifiedGoogle)
     if (!snapshot) throw new StorageError(404, "Board not found")
     return storageResponse(snapshot.appearance)
@@ -49,7 +50,7 @@ export async function PUT(request: Request, context: Context) {
     const form = await boundedForm(request)
     if ([...form.keys()].some(key => key !== "preferences" && key !== "image") || form.getAll("preferences").length !== 1 || form.getAll("image").length > 1) throw new StorageError(400, "Invalid appearance fields")
     const envelope = form.get("preferences")
-    if (typeof envelope !== "string" || Buffer.byteLength(envelope) > 8192) throw new StorageError(400, "Invalid appearance preferences")
+    if (typeof envelope !== "string" || Buffer.byteLength(envelope) > 64 * 1024) throw new StorageError(400, "Invalid appearance preferences")
     let decoded: unknown
     try { decoded = JSON.parse(envelope) } catch { throw new StorageError(400, "Invalid appearance preferences") }
     const input = parseSaveAppearance(decoded)

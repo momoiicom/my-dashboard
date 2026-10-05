@@ -268,11 +268,12 @@ try {
       const expected = retainedRows.get(table)!
       assert.deepEqual(rows.map(row => {
         if (table !== "Board") return row
-        const { appearanceKind, appearanceColor, appearanceAssetId, appearanceAccent, appearanceRevision, ...historic } = row
+        const { appearanceKind, appearanceColor, appearanceAssetId, appearanceAccent, appearanceRevision, appearanceMainToolbar, appearanceBoardToolbar, appearanceCard, appearanceButton, ...historic } = row
         assert.deepEqual(
           [appearanceKind, appearanceColor, appearanceAssetId, appearanceAccent, appearanceRevision],
           ["default", null, null, "#0c66e4", 0]
         )
+        assert.deepEqual([appearanceMainToolbar, appearanceBoardToolbar, appearanceCard, appearanceButton], [null, null, null, null])
         return historic
       }), expected, `Appearance migration preserves ${table} records`)
     }

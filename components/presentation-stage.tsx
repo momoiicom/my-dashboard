@@ -42,7 +42,7 @@ export function PresentationStage({ state, stop, reveal, focusStop }: { state: P
   const phase = state.phase
   if (phase.kind === "idle") return null
   const sliding = phase.kind === "sliding"
-  return <div ref={stage} className="presentation-stage" data-phase={phase.kind} data-hidden={state.hidden} aria-label="Slideshow" onPointerMove={reveal} onTouchStart={reveal} onTouchMove={reveal} onClickCapture={blockPanelActivation} onAuxClickCapture={blockPanelActivation} onKeyDownCapture={event => {
+  return <div ref={stage} className="presentation-stage" data-phase={phase.kind} data-hidden={state.hidden} data-direction={state.direction} data-paused={state.paused} aria-label="Slideshow" aria-keyshortcuts="Space ArrowLeft ArrowRight Escape" onPointerMove={reveal} onTouchStart={reveal} onTouchMove={reveal} onClickCapture={blockPanelActivation} onAuxClickCapture={blockPanelActivation} onKeyDownCapture={event => {
     if (event.key === "Enter" || event.key === " ") blockPanelActivation(event)
   }} onFocusCapture={event => {
     reveal()
@@ -54,6 +54,7 @@ export function PresentationStage({ state, stop, reveal, focusStop }: { state: P
     <BoardPanel key={phase.current.board.id} snapshot={phase.current} {...size} hidden={state.hidden} className={sliding ? "presentation-outgoing" : ""} />
     {sliding ? <BoardPanel key={phase.next.board.id} snapshot={phase.next} {...size} hidden={state.hidden} className="presentation-incoming" /> : state.prefetched && <BoardPanel key={state.prefetched.board.id} snapshot={state.prefetched} {...size} hidden={state.hidden} className="presentation-preloaded" />}
     <div className="presentation-shield" onPointerDown={reveal} />
+    <div className="presentation-status" role="status">{state.paused && "Paused · Space to resume"}</div>
     <Button ref={stopButton} variant="secondary" size="icon" className={`presentation-stop ${state.controlsVisible ? "" : "presentation-stop-hidden"}`} style={appearanceTokens(phase.current.appearance.effective, phase.current.board.id)} aria-label="Stop slideshow" title="Stop slideshow" onClick={stop} onFocus={() => focusStop(true)} onBlur={() => focusStop(false)}><Square aria-hidden="true" /></Button>
   </div>
 }

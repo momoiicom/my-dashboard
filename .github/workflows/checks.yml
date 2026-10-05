@@ -25,6 +25,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:boards:migration
+      - run: npm run test:appearance:migration
       - run: npm run test:smoke
       - run: npm run test:boards:api
       - run: node_modules/.bin/tsx scripts/bot-contract.ts

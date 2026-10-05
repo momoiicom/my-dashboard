@@ -35,6 +35,7 @@
     "test:sharing:auth": "esbuild scripts/auth-callback-test.ts --bundle --platform=node --format=esm --packages=external --alias:server-only=./node_modules/next/dist/compiled/server-only/empty.js --alias:next/navigation=next/navigation.js --outfile=.e2e/sharing/auth-callback.mjs && node .e2e/sharing/auth-callback.mjs",
     "appearance:cleanup": "node --import tsx scripts/appearance-cleanup.ts",
     "test:appearance:api": "node --import tsx scripts/appearance-smoke.ts",
+    "test:appearance:migration": "node --import tsx scripts/appearance-migration.ts",
     "test:e2e:appearance": "node --import tsx scripts/appearance-smoke.ts --browser"
   },
   "dependencies": {

@@ -31,13 +31,14 @@ const clamp = (value: number, minimum: number, maximum: number) =>
 const snap = (value: number, minimum: number, maximum: number) =>
   clamp(Math.round(value / GRID_SIZE) * GRID_SIZE, minimum, maximum)
 
-export function Dashboard({ initialCards, name, image, localUiMode = false, boardId, boards, boardToolbar, onPlay, initialConnectOpen, onConnectClosed, role = "author", initialLayoutToken, onAccessRemoved, appearance, previewUrl, onSettings, onAppearanceSnapshot, getAppearanceEpoch }: {
+export function Dashboard({ initialCards, name, image, localUiMode = false, boardId, boards, boardToolbar, onPlay, initialConnectOpen, onConnectClosed, role = "author", initialLayoutToken, onAccessRemoved, appearance, previewUrl, onSettings, onSharing, onAppearanceSnapshot, getAppearanceEpoch }: {
   role?: "author" | "viewer"
   initialLayoutToken?: string
   onAccessRemoved: (boardId: string) => void
   appearance: AppearanceState["effective"]
   previewUrl?: string
   onSettings: () => void
+  onSharing?: () => void
   onAppearanceSnapshot: (boardId: string, state: AppearanceState, epoch: number) => void
   getAppearanceEpoch: () => number
   initialConnectOpen: boolean
@@ -296,7 +297,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
           <Button size="sm" disabled={isSigningOut || hasGesture || mutationPending} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : isViewer ? "Customize my layout" : "Edit layout"}</Button>
         </div>
         <div className="dashboard-account">
-          <AccountMenu name={name} image={image} localUiMode={localUiMode} appearance={appearance} boardId={boardId} onSettings={onSettings} onPendingChange={setIsSigningOut} beforeSignOut={() => {
+          <AccountMenu name={name} image={image} localUiMode={localUiMode} appearance={appearance} boardId={boardId} onSettings={onSettings} onSharing={isViewer ? undefined : onSharing} onPendingChange={setIsSigningOut} beforeSignOut={() => {
             setMode("view")
             return new Promise<void>((resolve) => {
               if (!busy.current && pendingActions.current.length === 0) resolve()

@@ -5,9 +5,9 @@ import path from "node:path"
 import sharp from "sharp"
 import type { Prisma } from "@/generated/prisma/client"
 import { prisma } from "@/lib/prisma"
-import { requireBoardAccess } from "@/lib/board-access"
+import { bindBoardGrants, requireBoardAccess } from "@/lib/board-access"
 import { retryWrite, StorageError } from "@/lib/storage-error"
-import { resolveAppearance, type Appearance, type AppearanceChoice, type AppearanceState, type Background, type SaveAppearance, type ViewerPreferences } from "@/lib/appearance"
+import { APPEARANCE_SURFACES, resolveAppearance, type Appearance, type AppearanceChoice, type AppearanceColors, type AppearanceState, type AppearanceTarget, type Background, type SaveAppearance, type ViewerColors, type ViewerPreferences } from "@/lib/appearance"
 
 const MAX_UPLOAD = 10 * 1024 * 1024
 const MAX_PIXELS = 25_000_000
@@ -22,12 +22,56 @@ function background(kind: string | null, color: string | null, assetId: string |
   return { kind: "default" }
 }
 
+function presentColors(values: AppearanceColors | ViewerColors) {
+  return Object.keys(values).length ? { colors: values } : {}
+}
+
+function authorColors(board: Access["board"]): AppearanceColors {
+  const values = { mainToolbar: board.appearanceMainToolbar, boardToolbar: board.appearanceBoardToolbar, card: board.appearanceCard, button: board.appearanceButton }
+  return Object.fromEntries(APPEARANCE_SURFACES.filter(key => values[key] !== null).map(key => [key, values[key]])) as AppearanceColors
+}
+
+function viewerColors(row: { mainToolbar: string | null; boardToolbar: string | null; card: string | null; button: string | null } | null): ViewerColors {
+  if (!row) return {}
+  return Object.fromEntries(APPEARANCE_SURFACES.filter(key => row[key] !== null).map(key => [key, row[key]])) as ViewerColors
+}
+
+function boardColorData(colors: AppearanceColors) {
+  return { appearanceMainToolbar: colors.mainToolbar ?? null, appearanceBoardToolbar: colors.boardToolbar ?? null, appearanceCard: colors.card ?? null, appearanceButton: colors.button ?? null }
+}
+
+function viewerColorData(colors: ViewerColors) {
+  return { mainToolbar: colors.mainToolbar ?? null, boardToolbar: colors.boardToolbar ?? null, card: colors.card ?? null, button: colors.button ?? null }
+}
+
+function targetColors(input: SaveAppearance["preferences"], targetRole: Access["role"], current: AppearanceState): AppearanceColors | ViewerColors {
+  const existing = targetRole === "author" ? current.author.colors : (current.preferences.value as ViewerPreferences).colors
+  if (input.colors === undefined) return existing ?? {}
+  if (targetRole === "author") {
+    const colors: AppearanceColors = {}
+    for (const key of APPEARANCE_SURFACES) {
+      const selected = input.colors[key]
+      if (selected === undefined && input.role === "viewer") {
+        if (current.author.colors?.[key]) colors[key] = current.author.colors[key]
+      } else if (selected && selected !== "auto") colors[key] = selected
+    }
+    return colors
+  }
+  const colors: ViewerColors = {}
+  for (const key of APPEARANCE_SURFACES) {
+    const selected = input.colors[key]
+    if (selected !== undefined) colors[key] = selected
+    else if (input.role === "author") colors[key] = "auto"
+  }
+  return colors
+}
+
 export async function readAppearance(tx: Prisma.TransactionClient, access: Access): Promise<AppearanceState> {
   const board = access.board
-  const author: Appearance = { background: background(board.appearanceKind, board.appearanceColor, board.appearanceAssetId), accent: board.appearanceAccent }
+  const author: Appearance = { background: background(board.appearanceKind, board.appearanceColor, board.appearanceAssetId), accent: board.appearanceAccent, ...presentColors(authorColors(board)) }
   if (access.role === "author") return { author, effective: author, preferences: { role: "author", value: author }, source: { background: "author", accent: "author" }, token: `${board.appearanceRevision}:0` }
   const row = await tx.viewerAppearance.findUnique({ where: { boardId_userId: { boardId: board.id, userId: access.userId } } })
-  const personal: ViewerPreferences = { background: row?.backgroundKind ? background(row.backgroundKind, row.backgroundColor, row.backgroundAssetId) : null, accent: row?.accent ?? null }
+  const personal: ViewerPreferences = { background: row?.backgroundKind ? background(row.backgroundKind, row.backgroundColor, row.backgroundAssetId) : null, accent: row?.accent ?? null, ...presentColors(viewerColors(row)) }
   return { author, effective: resolveAppearance(author, personal), preferences: { role: "viewer", value: personal }, source: { background: personal.background ? "personal" : "author", accent: personal.accent ? "personal" : "author" }, token: `${board.appearanceRevision}:${row?.revision ?? 0}` }
 }
 
@@ -98,41 +142,104 @@ function backgroundData(value: Background | null) {
   return { backgroundKind: value?.kind ?? null, backgroundColor: value?.kind === "solid" ? value.color : null, backgroundAssetId: value?.kind === "image" ? value.assetId : null }
 }
 
-export async function saveAppearance(identity: { id: string; verifiedGoogle: boolean }, boardId: string, input: SaveAppearance, file: File | null) {
-  const wantsUpload = input.preferences.background?.kind === "upload"
-  if (Boolean(file) !== wantsUpload) throw new StorageError(400, "Image file and selection must match")
-  await retryWrite(() => prisma.$transaction(async tx => {
-    const access = await requireBoardAccess(tx, identity.id, boardId, identity.verifiedGoogle)
-    if (access.role !== input.preferences.role) throw new StorageError(403, "Appearance role changed")
-    if ((await readAppearance(tx, access)).token !== input.expectedToken) throw new StorageError(409, "Appearance changed on another device")
+type Identity = { id: string; verifiedGoogle: boolean }
+
+async function appearanceTargets(tx: Prisma.TransactionClient, identity: Identity): Promise<AppearanceTarget[]> {
+  const user = identity.verifiedGoogle ? await tx.user.findUnique({ where: { id: identity.id }, select: { googleVerifiedEmail: true } }) : null
+  const shared = Boolean(user?.googleVerifiedEmail)
+  if (shared) await bindBoardGrants(tx, identity.id, identity.verifiedGoogle)
+  const boards = await tx.board.findMany({ where: { OR: [{ ownerId: identity.id }, ...(shared ? [{ grants: { some: { userId: identity.id } } }] : [])] }, select: { id: true }, orderBy: { id: "asc" } })
+  if (boards.length > 200) throw new StorageError(400, "Apply to all supports up to 200 boards")
+  const targets: AppearanceTarget[] = []
+  for (const board of boards) {
+    const access = await requireBoardAccess(tx, identity.id, board.id, identity.verifiedGoogle)
+    targets.push({ boardId: board.id, token: (await readAppearance(tx, access)).token })
+  }
+  return targets
+}
+
+export async function getAppearanceTargets(identity: Identity, boardId: string) {
+  return retryWrite(() => prisma.$transaction(async tx => {
+    await requireBoardAccess(tx, identity.id, boardId, identity.verifiedGoogle)
+    return appearanceTargets(tx, identity)
   }))
-  const normalized = file ? await normalizeImage(file) : null
-  let uploadedId: string | null = null
+}
+
+async function checkedTargets(tx: Prisma.TransactionClient, identity: Identity, boardId: string, input: SaveAppearance) {
+  const source = await requireBoardAccess(tx, identity.id, boardId, identity.verifiedGoogle)
+  if (source.role !== input.preferences.role) throw new StorageError(403, "Appearance role changed")
+  const sourceState = await readAppearance(tx, source)
+  if (sourceState.token !== input.expectedToken) throw new StorageError(409, "Appearance changed on another device")
+  const expected = input.targets ?? [{ boardId, token: input.expectedToken }]
+  if (!expected.some(target => target.boardId === boardId && target.token === input.expectedToken)) throw new StorageError(400, "Selected board must be included")
+  if (input.targets) {
+    const actual = await appearanceTargets(tx, identity)
+    if (actual.length !== expected.length || actual.some(target => !expected.some(item => item.boardId === target.boardId && item.token === target.token))) throw new StorageError(409, "Board access or appearance changed. Reload or reapply your choices.")
+  }
+  const targets = []
+  for (const target of expected) {
+    const access = target.boardId === boardId ? source : await requireBoardAccess(tx, identity.id, target.boardId, identity.verifiedGoogle)
+    const current = target.boardId === boardId ? sourceState : await readAppearance(tx, access)
+    if (current.token !== target.token) throw new StorageError(409, "Appearance changed on another device")
+    targets.push({ access, current })
+  }
+  await checkedBackground(tx, source, input.preferences.background?.kind === "upload" ? null : input.preferences.background, null)
+  return targets
+}
+
+async function persistAppearance(tx: Prisma.TransactionClient, access: Access, current: AppearanceState, chosen: Background | null, accent: string | null, colors: AppearanceColors | ViewerColors) {
+  const boardId = access.board.id
+  if (access.role === "author") {
+    const old = current.author
+    const value = chosen ?? old.background
+    const color = accent ?? old.accent
+    if (JSON.stringify(old.background) !== JSON.stringify(value) || old.accent !== color || JSON.stringify(boardColorData(old.colors ?? {})) !== JSON.stringify(boardColorData(colors as AppearanceColors))) {
+      const fields = backgroundData(value)
+      await tx.board.update({ where: { id: boardId }, data: { appearanceKind: fields.backgroundKind!, appearanceColor: fields.backgroundColor, appearanceAssetId: fields.backgroundAssetId, appearanceAccent: color, ...boardColorData(colors as AppearanceColors), appearanceRevision: { increment: 1 } } })
+    }
+  } else {
+    const old = current.preferences.value as ViewerPreferences
+    if (JSON.stringify(old.background) !== JSON.stringify(chosen) || old.accent !== accent || JSON.stringify(viewerColorData(old.colors ?? {})) !== JSON.stringify(viewerColorData(colors as ViewerColors))) {
+      await tx.viewerAppearance.upsert({ where: { boardId_userId: { boardId, userId: access.userId } }, create: { boardId, userId: access.userId, ...backgroundData(chosen), accent, ...viewerColorData(colors as ViewerColors), revision: 1 }, update: { ...backgroundData(chosen), accent, ...viewerColorData(colors as ViewerColors), revision: { increment: 1 } } })
+    }
+  }
+}
+
+export async function saveAppearance(identity: Identity, boardId: string, input: SaveAppearance, file: File | null) {
+  const choice = input.preferences.background
+  if (Boolean(file) !== (choice?.kind === "upload")) throw new StorageError(400, "Image file and selection must match")
+  const prepared = await retryWrite(() => prisma.$transaction(async tx => {
+    const targets = await checkedTargets(tx, identity, boardId, input)
+    const asset = input.targets && choice?.kind === "image" ? await tx.imageAsset.findUnique({ where: { id: choice.assetId } }) : null
+    return { targets, asset }
+  }))
+  let normalized = file ? await normalizeImage(file) : null
+  if (prepared.asset) {
+    try { normalized = { bytes: await readFile(assetPath(prepared.asset.id)), width: prepared.asset.width, height: prepared.asset.height } }
+    catch { throw new StorageError(503, "Image storage unavailable") }
+  }
+  const staged = new Map<string, string>()
   try {
-    if (normalized) uploadedId = await writeAsset(normalized.bytes)
-    return await retryWrite(() => prisma.$transaction(async tx => {
-      const access = await requireBoardAccess(tx, identity.id, boardId, identity.verifiedGoogle)
-      if (access.role !== input.preferences.role) throw new StorageError(403, "Appearance role changed")
-      const current = await readAppearance(tx, access)
-      if (current.token !== input.expectedToken) throw new StorageError(409, "Appearance changed on another device")
-      const chosen = await checkedBackground(tx, access, input.preferences.background, uploadedId)
-      if (normalized && uploadedId) await tx.imageAsset.create({ data: { id: uploadedId, boardId, uploaderId: identity.id, scope: access.role === "author" ? "author" : "personal", byteSize: normalized.bytes.length, width: normalized.width, height: normalized.height } })
-      if (access.role === "author" && input.preferences.role === "author") {
-        const old = current.author
-        if (JSON.stringify(old.background) !== JSON.stringify(chosen) || old.accent !== input.preferences.accent) {
-          const fields = backgroundData(chosen)
-          await tx.board.update({ where: { id: boardId }, data: { appearanceKind: fields.backgroundKind!, appearanceColor: fields.backgroundColor, appearanceAssetId: fields.backgroundAssetId, appearanceAccent: input.preferences.accent, appearanceRevision: { increment: 1 } } })
-        }
-      } else if (access.role === "viewer" && input.preferences.role === "viewer") {
-        const old = current.preferences.value as ViewerPreferences
-        if (JSON.stringify(old.background) !== JSON.stringify(chosen) || old.accent !== input.preferences.accent) {
-          await tx.viewerAppearance.upsert({ where: { boardId_userId: { boardId, userId: identity.id } }, create: { boardId, userId: identity.id, ...backgroundData(chosen), accent: input.preferences.accent, revision: 1 }, update: { ...backgroundData(chosen), accent: input.preferences.accent, revision: { increment: 1 } } })
-        }
+    if (normalized) {
+      for (const { access } of prepared.targets) {
+        if (choice?.kind === "image" && access.board.id === boardId) continue
+        staged.set(access.board.id, await writeAsset(normalized.bytes))
       }
-      const refreshed = await requireBoardAccess(tx, identity.id, boardId, identity.verifiedGoogle)
-      return readAppearance(tx, refreshed)
+    }
+    return await retryWrite(() => prisma.$transaction(async tx => {
+      const targets = await checkedTargets(tx, identity, boardId, input)
+      for (const { access, current } of targets) {
+        const id = staged.get(access.board.id)
+        const chosen = id ? { kind: "image" as const, assetId: id } : choice?.kind === "upload" ? null : choice
+        if (normalized && id) await tx.imageAsset.create({ data: { id, boardId: access.board.id, uploaderId: identity.id, scope: access.role === "author" ? "author" : "personal", byteSize: normalized.bytes.length, width: normalized.width, height: normalized.height } })
+        await persistAppearance(tx, access, current, chosen, input.preferences.accent, targetColors(input.preferences, access.role, current))
+      }
+      return readAppearance(tx, await requireBoardAccess(tx, identity.id, boardId, identity.verifiedGoogle))
     }))
-  } catch (error) { if (uploadedId) await unlink(assetPath(uploadedId)).catch(() => {}); throw error }
+  } catch (error) {
+    await Promise.all([...staged.values()].map(id => unlink(assetPath(id)).catch(() => {})))
+    throw error
+  }
 }
 
 export async function readAsset(identity: { id: string; verifiedGoogle: boolean }, boardId: string, assetId: string) {

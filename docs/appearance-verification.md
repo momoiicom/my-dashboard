@@ -18,6 +18,8 @@ This record covers the local implementation on 2026-10-05. The checks used Node 
 
 The appearance API suite checks inheritance, independent viewer fields, reset against current author defaults, stale revision rejection, a failed database write with file rollback, immutable image URLs, cross-board and cross-viewer denial, revocation, and unchanged card content and layout tokens. It uploads a decodable PNG, rejects SVG, invalid bytes, APNG, files over 10 MiB and oversized chunked requests, then checks normalized WebP bytes and private response headers. It deletes a board with author and viewer image references, runs delayed cleanup against orphan files, and verifies that referenced images survive cleanup. The suite also confirms that upload and appearance changes leave the author and viewer card snapshots intact.
 
+The browser suite selects a PNG larger than 10 MiB, verifies that selection makes no upload request, and inspects the actual multipart Save. The uploaded file must be a smaller WebP at 4,096 by 2,731 pixels with no EXIF metadata. The stored server asset must retain those dimensions. A rotated JPEG verifies portrait dimensions and the actual red and blue pixels after orientation. Animated PNG and WebP, excessive source dimensions and files above 50 MiB must preserve the previous valid preview. A delayed native decode verifies that Save is disabled and Reset cannot be replaced by a late result. Desktop and mobile screenshots capture the optimized preview.
+
 The browser suite checks Settings for the selected board, local object URL preview, selecting the same image after Reset, Cancel, Save and reload, author defaults, two independent viewers, mobile layout, conflict with explicit reapply, closing a delayed Reload, and closing a stalled Save. Computed control colors meet a 4.5:1 WCAG contrast ratio for white, black and `#757575` accents. The saved light accent and pressed layout button also meet that ratio. The black accent edit view keeps a white resize grip. During slideshow advance, both outgoing and incoming panels expose their own computed backgrounds; the second board then renders with its own solid color.
 
 ## Rendered samples
@@ -53,3 +55,31 @@ With the same deliberately delayed viewer polls released at the new synchronizat
 ## Deployment checks still needed
 
 The signed sessions do not prove a real Google OAuth callback. The tests do not reach a live Cloudflare edge. Before deployment, put `APPEARANCE_STORAGE_DIR` on persistent storage, back up that directory with the SQLite database, run `appearance:cleanup` on a schedule, and verify that the CDN honors `private, no-store` and never serves a revoked image from a shared cache. No Cloudflare configuration or production storage was changed here.
+
+## Apply to all boards verification
+
+On 2026-10-05, the Node 22 Webpack production build (including TypeScript), focused ESLint, and `git diff --check` passed. The default Turbopack build inside the sandbox could not bind its compiler port; the Webpack build completed. `node --import tsx scripts/appearance-smoke.ts --browser` passed using a temporary database, upload directory, isolated signed accounts, and a loopback production server.
+
+The expanded HTTP suite verifies a mixed owned/shared target set, defaults reaching invited viewers, private shared-board overrides, upload and existing-image copies with separate asset IDs and matching bytes, unchanged remote author defaults, inheritance without copying shared author data, stale-token rejection without files or partial writes, rollback after earlier boards have been updated in the transaction, staged-file cleanup, revoked access, and a changed board set.
+
+The desktop/mobile browser suite verifies the unchecked default, cancellation without other-board changes, image and accent application to both owned boards, a concurrent destination change with Reapply, and private viewer settings applied to owned and shared boards. The rendered `apply-all-desktop.png` and `apply-all-mobile.png` captures under `.e2e/appearance` were inspected. No production database, upload storage, or Cloudflare configuration was changed.
+
+## Automatic and Advanced colors verification
+
+The Node 22 Webpack build, TypeScript, Prisma validation, and ESLint pass. Lint retains the existing bot image warning. `node --import tsx scripts/appearance-migration.ts` preserves complete existing author and viewer records, appearance revisions, and foreign keys. It also checks all eight new database color constraints. The historical `boards-migration.ts` suite passes with the new nullable columns.
+
+`node --import tsx scripts/appearance-smoke.ts --browser` passes. The HTTP checks cover author manual colors, private viewer custom and automatic choices, inheritance after author changes, Reset, legacy saves without colors, invalid maps, mixed-role Apply to all, stale tokens, and transaction rollback after a destination failure.
+
+The real Chromium checks verify distinct automatic toolbar tones for six accents, exact manual backgrounds, valid preview after invalid input, Save and reload, private overrides, Reset, the Shared badge, and slideshow cards. Computed primary and muted text, links, table headers, code blocks, and semantic badges meet 4.5:1 contrast on light and mid-gray custom backgrounds. Color measurements wait for built-in CSS transitions to finish. A separate palette sweep checks all 256 grays and a 216-color RGB grid with 13,746 assertions and no failures.
+
+The final [desktop Advanced editor](images/appearance/advanced-colors-desktop.png), [mobile viewer editor](images/appearance/advanced-colors-mobile.png), and [custom cards in slideshow](images/appearance/advanced-colors-slideshow.png) were inspected. The desktop and mobile layouts fit their viewports and keep Save, Reset, and Cancel reachable through the dialog scroll.
+
+The wallpaper test prepares a 46,164,873-byte source image as a 6,773,178-byte WebP before upload. It verifies photo orientation, dimensions, invalid images, and late Reset behavior. The sharing HTTP and browser checks also pass, including author-only account-menu Shares. The additive Advanced migration remains unapplied in production.
+
+`node --import tsx scripts/e2e.ts boards` passes with the normal Turbopack production build and an isolated browser server. The build retains the existing dynamic filesystem tracing warning. The regression checks exact dwell timing, left and right wraparound, arrow-induced pause, Space pause and resume, remaining dwell time, repeated keydown, reverse transitions, canceled target loads, deleted boards, reduced motion, unchanged history length, and restoration of the displayed board after Stop.
+
+## Slideshow transition input regression
+
+PR review found that an arrow pressed during a slide paused playback but discarded the requested direction. The new Chromium regression failed on the unchanged application with `page.waitForFunction: Timeout 5000ms exceeded` while waiting for the deferred navigation. The hook now retains the latest direction, invalidates stale target loads immediately, and navigates after the current slide commits its board and URL. It preserves the latest pause state, including Space resume before settlement.
+
+The complete `node --import tsx scripts/e2e.ts boards` run passes with the fix. New cases cover both arrow directions during a transition, rapid direction replacement, and Space resume before the queued move. Existing hidden-tab, Stop, canceled-load, reduced-motion and history checks also pass. The production build, TypeScript, focused ESLint and `git diff --check` pass. The rendered paused slideshow was inspected. These checks used a temporary database and loopback server; no production changes were made.
