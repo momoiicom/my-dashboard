@@ -16,6 +16,8 @@ model User {
   googleVerifiedEmail String?
   boardGrants BoardGrant[]
   cardLayouts CardLayout[]
+  appearances ViewerAppearance[]
+  uploadedAppearanceAssets ImageAsset[]
   accounts      Account[]
   sessions      Session[]
   boards        Board[]
@@ -73,6 +75,14 @@ model Board {
   cards           DashboardCard[]
   grants BoardGrant[]
   layouts CardLayout[]
+  appearanceKind String @default("default")
+  appearanceColor String?
+  appearanceAssetId String?
+  appearanceAccent String @default("#0c66e4")
+  appearanceRevision Int @default(0)
+  appearanceAsset ImageAsset? @relation("AuthorAppearance", fields: [appearanceAssetId], references: [id], onDelete: NoAction)
+  appearances ViewerAppearance[]
+  appearanceAssets ImageAsset[] @relation("BoardAppearanceAssets")
 
   @@unique([ownerId, id])
   @@unique([ownerId, nameKey])
@@ -148,4 +158,35 @@ model CardLayout {
   @@id([userId, boardId, cardId])
   @@index([cardId])
   @@index([boardId])
+}
+
+model ViewerAppearance {
+  boardId String
+  userId String
+  backgroundKind String?
+  backgroundColor String?
+  backgroundAssetId String?
+  accent String?
+  revision Int @default(0)
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  backgroundAsset ImageAsset? @relation("PersonalAppearance", fields: [backgroundAssetId], references: [id], onDelete: NoAction)
+  @@id([boardId, userId])
+}
+
+model ImageAsset {
+  id String @id
+  boardId String
+  uploaderId String
+  scope String
+  byteSize Int
+  width Int
+  height Int
+  createdAt DateTime @default(now())
+  board Board @relation("BoardAppearanceAssets", fields: [boardId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  authorReferences Board[] @relation("AuthorAppearance")
+  personalReferences ViewerAppearance[] @relation("PersonalAppearance")
+  @@index([boardId])
+  @@index([createdAt])
 }

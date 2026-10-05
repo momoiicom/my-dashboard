@@ -5,6 +5,7 @@ import type { BoardSnapshot } from "@/lib/board"
 import { isBoardId } from "@/lib/board"
 import { cardSelect, serializeCard } from "@/lib/card-store"
 import { StorageError } from "@/lib/storage-error"
+import { readAppearance } from "@/lib/appearance-store"
 
 export async function bindBoardGrants(tx: Prisma.TransactionClient, userId: string, verifiedGoogle: boolean, boardId?: string) {
   if (!verifiedGoogle) return
@@ -47,5 +48,5 @@ export async function effectiveBoardSnapshot(tx: Prisma.TransactionClient, acces
     return { ...serializeCard(card), ...(override ? { x: override.x, y: override.y, width: override.width, height: override.height } : {}), layoutSource: override ? "personal" as const : "author" as const }
   })
   const layoutToken = createHash("sha256").update(JSON.stringify(cards.map(card => [card.id, card.membershipRevision, card.x, card.y, card.width, card.height, card.layoutSource]))).digest("hex")
-  return { board: { id: board.id, name: board.name, isOriginal: role === "author" && board.originalOwnerId !== null, createdAt: board.createdAt.toISOString(), role, author: board.owner }, cards, layoutToken, role }
+  return { board: { id: board.id, name: board.name, isOriginal: role === "author" && board.originalOwnerId !== null, createdAt: board.createdAt.toISOString(), role, author: board.owner }, cards, layoutToken, role, appearance: await readAppearance(tx, access) }
 }

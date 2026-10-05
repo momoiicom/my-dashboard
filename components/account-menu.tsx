@@ -6,6 +6,8 @@ import { ChevronDown, LogOut, Settings, Share2 } from "lucide-react"
 import { DropdownMenu } from "radix-ui"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { appearanceTokens } from "@/components/appearance-surface"
+import type { Appearance } from "@/lib/appearance"
 
 type AccountMenuProps = {
   name: string
@@ -13,9 +15,12 @@ type AccountMenuProps = {
   localUiMode: boolean
   beforeSignOut: () => Promise<void>
   onPendingChange: (pending: boolean) => void
+  onSettings: () => void
+  appearance: Appearance
+  boardId: string
 }
 
-export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPendingChange }: AccountMenuProps) {
+export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPendingChange, onSettings, appearance, boardId }: AccountMenuProps) {
   const [pending, setPending] = useState(false)
   const signingOut = useRef(false)
 
@@ -44,17 +49,16 @@ export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPending
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="dashboard-account-menu" align="end" sideOffset={6}>
+        <DropdownMenu.Content className="dashboard-account-menu" style={appearanceTokens(appearance, boardId)} align="end" sideOffset={6}>
           <DropdownMenu.Group>
             <DropdownMenu.Item className="dashboard-account-menu-item" disabled>
               <Share2 aria-hidden="true" />
               <span>Shares</span>
               <span className="dashboard-account-menu-hint">TBD</span>
             </DropdownMenu.Item>
-            <DropdownMenu.Item className="dashboard-account-menu-item" disabled>
+            <DropdownMenu.Item className="dashboard-account-menu-item" onSelect={onSettings}>
               <Settings aria-hidden="true" />
               <span>Settings</span>
-              <span className="dashboard-account-menu-hint">TBD</span>
             </DropdownMenu.Item>
           </DropdownMenu.Group>
           {!localUiMode && (

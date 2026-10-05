@@ -46,7 +46,7 @@ Select **Play** to present the selected board, then cycle through the captured t
 
 Every board has a permanent `/boards/<boardId>` URL. The root URL opens the original board, initially named Dashboard. Names are unique within the account after trimming and ignoring case. Renaming preserves the URL. The original board can be renamed but cannot be deleted. Deleting another board removes its remaining cards.
 
-Browser mutations require a signed session, a matching Origin header, and JSON. Board CRUD uses `/api/boards` and `/api/boards/<boardId>`. To transfer a card, send `POST /api/cards/<id>/move` with `{sourceBoardId,destinationBoardId}`. A transfer preserves content and dimensions, places the card below the destination cards, and increments its membership revision. Retrying the most recently completed transfer does not move it again, including after the old board is deleted. A full destination returns 409 without changing the card.
+Browser mutations require a signed session and a matching Origin header. Board and card commands use JSON; appearance saves use bounded multipart forms. Board CRUD uses `/api/boards` and `/api/boards/<boardId>`. To transfer a card, send `POST /api/cards/<id>/move` with `{sourceBoardId,destinationBoardId}`. A transfer preserves content and dimensions, places the card below the destination cards, and increments its membership revision. Retrying the most recently completed transfer does not move it again, including after the old board is deleted. A full destination returns 409 without changing the card.
 
 Card edits and deletions compare the captured board and membership revision, so a queued request cannot edit a card that has moved away and returned. Missing or foreign resources return 404. Duplicate board names, original-board deletion, and stale membership return 409. Transient storage exhaustion returns 503 and can be retried.
 
@@ -62,4 +62,10 @@ Shared tabs show a violet tint, **Shared** badge, and author identity. Viewers r
 
 Apply migrations with `npm run db:generate` and `npm run db:deploy` before running this version. After `npm run build`, run `npm run test:arrange`, `npm run test:sharing:auth`, `npm run test:sharing:api`, and `npm run test:e2e:sharing`. The sharing suites use temporary SQLite databases, local signed sessions, isolated servers, and desktop/mobile browser contexts. Callback fixtures exercise Google-profile verification persistence but do not verify a real Google OAuth exchange. See [sharing verification](docs/sharing-verification.md).
 
-Board appearance settings remain a separate follow-up phase; background-image storage must be chosen first.
+## Board appearance
+
+Open **Settings** in the account menu on a board to preview and save its background and accent. Authors set the board defaults. Invited viewers can inherit either field or save a personal choice. Reset changes the preview; Save commits it. Playback uses each board's saved appearance.
+
+Set `APPEARANCE_STORAGE_DIR` to an absolute path on persistent server storage before accepting uploads. The default for local development is `data/uploads` beneath the app directory. Do not put the directory under `public` or `.next`. Back up the SQLite database and the upload directory together, and restore them together. A missing file cannot be rebuilt from the database. The image endpoint checks current board access and sends `private, no-store`; a CDN must honor those headers and must not serve a shared cache hit before authentication. Verify that behavior against the deployed CDN before enabling any custom caching rule.
+
+Uploads accept still JPEG, PNG, and WebP files up to 10 MiB and 25 million pixels. The server strips metadata, normalizes the image to WebP, and stores an immutable random asset ID. Replacements leave old files for delayed cleanup so requests in progress can finish. Run `npm run appearance:cleanup` regularly, with the same `DATABASE_URL` and `APPEARANCE_STORAGE_DIR` as the app. It removes unreferenced asset rows and orphan files older than 24 hours. Keep the upload directory out of build artifacts and include it in storage capacity monitoring.

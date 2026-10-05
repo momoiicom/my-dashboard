@@ -13,6 +13,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "cn"
 import { AccountMenu } from "@/components/account-menu"
+import { appearanceStyle } from "@/components/appearance-surface"
+import type { AppearanceState } from "@/lib/appearance"
 import { cardKindDetails } from "@/lib/card-kinds"
 import { BotCardRenderer } from "@/components/bot-card-renderer"
 import { ConnectBotDialog } from "@/components/connect-bot-dialog"
@@ -29,10 +31,15 @@ const clamp = (value: number, minimum: number, maximum: number) =>
 const snap = (value: number, minimum: number, maximum: number) =>
   clamp(Math.round(value / GRID_SIZE) * GRID_SIZE, minimum, maximum)
 
-export function Dashboard({ initialCards, name, image, localUiMode = false, boardId, boards, boardToolbar, onPlay, initialConnectOpen, onConnectClosed, role = "author", initialLayoutToken, onAccessRemoved }: {
+export function Dashboard({ initialCards, name, image, localUiMode = false, boardId, boards, boardToolbar, onPlay, initialConnectOpen, onConnectClosed, role = "author", initialLayoutToken, onAccessRemoved, appearance, previewUrl, onSettings, onAppearanceSnapshot, getAppearanceEpoch }: {
   role?: "author" | "viewer"
   initialLayoutToken?: string
   onAccessRemoved: (boardId: string) => void
+  appearance: AppearanceState["effective"]
+  previewUrl?: string
+  onSettings: () => void
+  onAppearanceSnapshot: (boardId: string, state: AppearanceState, epoch: number) => void
+  getAppearanceEpoch: () => number
   initialConnectOpen: boolean
   onConnectClosed: () => void
   boardId: string
@@ -209,6 +216,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
       if (!active || document.visibilityState !== "visible" || polling.current || busy.current || pendingActions.current.length || gesture.current) return
       polling.current = true
       const epoch = requestEpoch.current
+      const appearanceEpoch = getAppearanceEpoch()
       try {
         const response = await fetch(`/api/boards/${encodeURIComponent(boardId)}/cards`, { cache: "no-store", credentials: "same-origin", signal: controller.signal })
         if (!active || epoch !== requestEpoch.current || busy.current || pendingActions.current.length || gesture.current) return
@@ -216,6 +224,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
         const result = await response.json() as BoardSnapshot
         if (!active || epoch !== requestEpoch.current || busy.current || pendingActions.current.length || gesture.current) return
         layoutToken.current = result.layoutToken
+        onAppearanceSnapshot(boardId, result.appearance, appearanceEpoch)
         if (JSON.stringify(result.cards) !== JSON.stringify(cardsRef.current)) updateCards(result.cards)
       } catch {}
       finally { polling.current = false }
@@ -224,7 +233,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
     const visible = () => { if (document.visibilityState === "visible") void refresh() }
     document.addEventListener("visibilitychange", visible)
     return () => { active = false; controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", visible) }
-  }, [boardId, isViewer, onAccessRemoved])
+  }, [boardId, isViewer, onAccessRemoved, onAppearanceSnapshot, getAppearanceEpoch])
 
   async function saveLayout(reset = false) {
     if (busy.current || pendingActions.current.length || gesture.current || !mounted.current) return
@@ -276,7 +285,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
   const canvasHeight = Math.max(900, ...cards.map((card) => card.y + card.height + 32))
 
   return (
-    <main className="dashboard-shell">
+    <main className="dashboard-shell" style={appearanceStyle(appearance, boardId, previewUrl)}>
       <header className="dashboard-topbar">
         <div className="dashboard-brand"><span className="dashboard-brand-mark" aria-hidden="true">▦</span><h1>Dashboard</h1><Badge variant="secondary" className="dashboard-private">{localUiMode ? "Local" : "Private"}</Badge></div>
         <div className="dashboard-actions">
@@ -287,7 +296,7 @@ export function Dashboard({ initialCards, name, image, localUiMode = false, boar
           <Button size="sm" disabled={isSigningOut || hasGesture || mutationPending} variant={isEditing ? "secondary" : "default"} aria-pressed={isEditing} onClick={() => setMode(isEditing ? "view" : "edit")}>{isEditing ? "Done editing" : isViewer ? "Customize my layout" : "Edit layout"}</Button>
         </div>
         <div className="dashboard-account">
-          <AccountMenu name={name} image={image} localUiMode={localUiMode} onPendingChange={setIsSigningOut} beforeSignOut={() => {
+          <AccountMenu name={name} image={image} localUiMode={localUiMode} appearance={appearance} boardId={boardId} onSettings={onSettings} onPendingChange={setIsSigningOut} beforeSignOut={() => {
             setMode("view")
             return new Promise<void>((resolve) => {
               if (!busy.current && pendingActions.current.length === 0) resolve()
