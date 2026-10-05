@@ -1,4 +1,5 @@
 import type { CardRecord } from "./dashboard-card"
+import type { AppearanceState } from "./appearance"
 
 export type BoardRecord = {
   role?: "author" | "viewer"
@@ -12,7 +13,7 @@ export type WorkspaceSnapshot = {
   boards: BoardRecord[]
   originalBoardId: string
 }
-export type BoardSnapshot = { board: BoardRecord; cards: CardRecord[]; layoutToken?: string; role?: "author" | "viewer" }
+export type BoardSnapshot = { board: BoardRecord; cards: CardRecord[]; layoutToken?: string; role?: "author" | "viewer"; appearance: AppearanceState }
 export type MoveInput = { sourceBoardId: string; destinationBoardId: string }
 export type MoveResult = { card: CardRecord; moved: boolean }
 

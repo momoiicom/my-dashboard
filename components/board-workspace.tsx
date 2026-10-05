@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation"
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Plus, Pencil, Trash2 } from "lucide-react"
 import { SharingDialog } from "@/components/sharing-dialog"
+import { AppearanceDialog } from "@/components/appearance-dialog"
+import type { Appearance, AppearanceState } from "@/lib/appearance"
 import { Dashboard } from "@/components/dashboard"
 import { PresentationStage } from "@/components/presentation-stage"
 import { usePresentation } from "@/components/use-presentation"
@@ -39,6 +41,15 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
   const snapshotRef = useRef<BoardSnapshot | null>(null)
   useLayoutEffect(() => { snapshotRef.current = snapshot }, [snapshot])
   const [sharingBoard, setSharingBoard] = useState<BoardRecord | null>(null)
+  const [appearanceBoardId, setAppearanceBoardId] = useState<string | null>(null)
+  const [appearancePreview, setAppearancePreview] = useState<{ appearance: Appearance; previewUrl?: string } | null>(null)
+  const appearanceEpoch = useRef(0)
+  const getAppearanceEpoch = useCallback(() => appearanceEpoch.current, [])
+  const onAppearanceSnapshot = useCallback((boardId: string, appearance: AppearanceState, epoch: number) => {
+    if (epoch !== appearanceEpoch.current) return
+    setSnapshot(current => current?.board.id === boardId ? { ...current, appearance } : current)
+  }, [])
+  const onAppearancePreview = useCallback((value: { appearance: Appearance; previewUrl?: string } | null) => setAppearancePreview(value), [])
   const [error, setError] = useState("")
   const [dialog, setDialog] = useState<BoardDialog | null>(null)
   const [boardName, setBoardName] = useState("")
@@ -123,6 +134,7 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
   }, [active, snapshot, pathname, workspace, router])
 
   const accessRemoved = useCallback((boardId: string) => {
+    appearanceEpoch.current++; setAppearanceBoardId(null); setAppearancePreview(null)
     setWorkspace(current => ({ ...current, boards: current.boards.filter(board => board.id !== boardId) }))
     if (window.location.pathname !== boardHref(boardId)) return
     setError("Access to this shared board was removed.")
@@ -170,6 +182,11 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
     }
   }
   const selected = snapshot && boardHref(snapshot.board.id) === pathname && workspace.boards.some(board => board.id === snapshot.board.id) ? snapshot : null
+  useEffect(() => {
+    if (!appearanceBoardId || appearanceBoardId === selected?.board.id) return
+    const timer = window.setTimeout(() => { appearanceEpoch.current++; setAppearanceBoardId(null); setAppearancePreview(null) }, 0)
+    return () => window.clearTimeout(timer)
+  }, [appearanceBoardId, selected?.board.id])
   const boardToolbar = <>
     <nav className="board-tabs" role="tablist" aria-label="Boards">
       {workspace.boards.map((board, index) => <Link key={board.id} href={boardHref(board.id)} role="tab" aria-selected={selected?.board.id === board.id} tabIndex={selected?.board.id === board.id ? 0 : -1} className={`board-tab${board.role === "viewer" ? " board-tab-shared" : ""}`} scroll={false} onKeyDown={event => {
@@ -193,7 +210,7 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
     <div ref={host} className="board-workspace" data-presenting={active}>
       {children}
       {error && !active && <div role="alert" className="board-workspace-error">{error}<button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
-      {!active && (selected ? <Dashboard key={selected.board.id} boardId={selected.board.id} role={selected.board.role} initialLayoutToken={selected.layoutToken} onAccessRemoved={accessRemoved} initialCards={selected.cards} boards={workspace.boards} name={name} image={image} localUiMode={localUiMode} boardToolbar={boardToolbar} initialConnectOpen={onboardingBoardId === selected.board.id} onConnectClosed={() => setOnboardingBoardId(null)} onPlay={cards => {
+      {!active && (selected ? <Dashboard key={selected.board.id} boardId={selected.board.id} role={selected.board.role} initialLayoutToken={selected.layoutToken} onAccessRemoved={accessRemoved} appearance={appearanceBoardId === selected.board.id && appearancePreview ? appearancePreview.appearance : selected.appearance.effective} previewUrl={appearanceBoardId === selected.board.id ? appearancePreview?.previewUrl : undefined} onSettings={() => setAppearanceBoardId(selected.board.id)} onAppearanceSnapshot={onAppearanceSnapshot} getAppearanceEpoch={getAppearanceEpoch} initialCards={selected.cards} boards={workspace.boards} name={name} image={image} localUiMode={localUiMode} boardToolbar={boardToolbar} initialConnectOpen={onboardingBoardId === selected.board.id} onConnectClosed={() => setOnboardingBoardId(null)} onPlay={cards => {
         setError("")
         expectedPath.current = pathname
         presentation.start({ ...selected, cards }, workspace.boards.map(board => board.id))
@@ -201,6 +218,12 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
       {active && <PresentationStage state={presentation.state} stop={() => presentation.stop()} reveal={presentation.reveal} focusStop={presentation.focusStop} />}
     </div>
     {sharingBoard && <SharingDialog key={sharingBoard.id} board={sharingBoard} onClose={() => setSharingBoard(null)} />}
+    {selected && appearanceBoardId === selected.board.id && <AppearanceDialog key={selected.board.id} boardId={selected.board.id} boardName={selected.board.name} state={selected.appearance} onPreview={onAppearancePreview} onSaving={() => { appearanceEpoch.current++ }} onBaseline={appearance => { appearanceEpoch.current++; setSnapshot(current => current?.board.id === selected.board.id ? { ...current, appearance } : current) }} onSaved={appearance => {
+      appearanceEpoch.current++
+      setSnapshot(current => current?.board.id === selected.board.id ? { ...current, appearance } : current)
+      setAppearanceBoardId(null)
+      setAppearancePreview(null)
+    }} onClose={() => { appearanceEpoch.current++; setAppearanceBoardId(null); setAppearancePreview(null) }} />}
     <Dialog open={dialog !== null} onOpenChange={open => { if (!open && !pending) setDialog(null) }}>
       <DialogContent><form onSubmit={saveBoard} className="board-dialog-form"><DialogHeader><DialogTitle>{dialog?.kind === "create" ? "Create board" : dialog?.kind === "rename" ? "Rename board" : "Delete board?"}</DialogTitle><DialogDescription>{dialog?.kind === "delete" ? `“${dialog.board.name}” and all cards on this board will be permanently deleted.` : "Give this board a name you and your bots can recognize."}</DialogDescription></DialogHeader>
         {dialog?.kind !== "delete" && <label className="board-name-label">Board name<Input autoFocus value={boardName} onChange={event => setBoardName(event.target.value)} required maxLength={240} disabled={pending} /></label>}

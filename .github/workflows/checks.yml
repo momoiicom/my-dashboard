@@ -18,7 +18,9 @@ jobs:
         run: |
           echo "DATABASE_URL=file:./ci.db" >> "$GITHUB_ENV"
           echo "NEXTAUTH_URL=http://localhost:3000" >> "$GITHUB_ENV"
-          echo "NEXTAUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          ci_session_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$ci_session_secret"
+          echo "NEXTAUTH_SECRET=$ci_session_secret" >> "$GITHUB_ENV"
       - run: npm run build
       - run: npm run lint
       - run: npm run typecheck
@@ -30,7 +32,9 @@ jobs:
       - run: npm run test:arrange
       - run: npm run test:sharing:auth
       - run: npm run test:sharing:api
+      - run: npm run test:appearance:api
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: npm run test:e2e:boards
       - run: npm run test:e2e:sharing
+      - run: npm run test:e2e:appearance
