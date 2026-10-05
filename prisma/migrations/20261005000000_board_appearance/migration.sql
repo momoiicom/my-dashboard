@@ -51,6 +51,7 @@ CREATE TABLE "new_Board" (
     "appearanceAssetId" TEXT,
     "appearanceAccent" TEXT NOT NULL DEFAULT '#0c66e4',
     "appearanceRevision" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "Board_original_owner_check" CHECK ("originalOwnerId" IS NULL OR "originalOwnerId" = "ownerId"),
     CONSTRAINT "Board_appearance_shape" CHECK (
       ("appearanceKind" = 'default' AND "appearanceColor" IS NULL AND "appearanceAssetId" IS NULL) OR
       ("appearanceKind" = 'solid' AND "appearanceColor" IS NOT NULL AND "appearanceAssetId" IS NULL) OR

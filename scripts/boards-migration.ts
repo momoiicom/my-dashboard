@@ -112,9 +112,13 @@ try {
     db.close()
   }
 
-  for (const entry of entries.slice(boardMigrationIndex))
+  const appearanceMigrationIndex = entries.findIndex(name => name.endsWith("_board_appearance"))
+  assert(appearanceMigrationIndex > boardMigrationIndex, "Expected the appearance migration after boards")
+  for (const entry of entries.slice(boardMigrationIndex, appearanceMigrationIndex))
     await cp(join(source, entry), join(migrations, entry), { recursive: true })
   deploy()
+  const retainedTables = ["Board", "DashboardCard", "BotToken", "BoardGrant", "CardLayout"]
+  const retainedRows = new Map<string, unknown[]>()
   const migrated = new Database(databasePath)
   try {
     migrated.pragma("foreign_keys = ON")
@@ -243,11 +247,89 @@ try {
       ).boardId,
       original.id
     )
+    migrated.prepare('INSERT INTO "BoardGrant" ("id", "boardId", "email", "userId", "createdAt") VALUES (?, ?, ?, ?, ?)')
+      .run("historic-grant", original.id, "other@example.test", otherOwnerId, issued)
+    migrated.prepare('INSERT INTO "CardLayout" ("userId", "boardId", "cardId", "x", "y", "width", "height") VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(otherOwnerId, original.id, cardId, 23, 45, 321, 222)
+    for (const table of retainedTables)
+      retainedRows.set(table, migrated.prepare(`SELECT * FROM "${table}" ORDER BY rowid`).all())
   } finally {
     migrated.close()
   }
+
+  for (const entry of entries.slice(appearanceMigrationIndex))
+    await cp(join(source, entry), join(migrations, entry), { recursive: true })
+  deploy()
+  const appearance = new Database(databasePath)
+  try {
+    appearance.pragma("foreign_keys = ON")
+    for (const table of retainedTables) {
+      const rows = appearance.prepare(`SELECT * FROM "${table}" ORDER BY rowid`).all() as Record<string, unknown>[]
+      const expected = retainedRows.get(table)!
+      assert.deepEqual(rows.map(row => {
+        if (table !== "Board") return row
+        const { appearanceKind, appearanceColor, appearanceAssetId, appearanceAccent, appearanceRevision, ...historic } = row
+        assert.deepEqual(
+          [appearanceKind, appearanceColor, appearanceAssetId, appearanceAccent, appearanceRevision],
+          ["default", null, null, "#0c66e4", 0]
+        )
+        return historic
+      }), expected, `Appearance migration preserves ${table} records`)
+    }
+    assert.deepEqual(appearance.pragma("foreign_key_check"), [])
+    appearance.prepare('INSERT INTO "User" ("id") VALUES (?)').run("fresh-owner")
+    const insertBoard = appearance.prepare('INSERT INTO "Board" ("id", "ownerId", "name", "nameKey", "originalOwnerId", "updatedAt") VALUES (?, ?, ?, ?, ?, ?)')
+    assert.throws(
+      () => insertBoard.run("invalid-original", ownerId, "Invalid", "invalid", "fresh-owner", changed),
+      /CHECK constraint failed: Board_original_owner_check/,
+      "The final migration must reject an original board owned by another user"
+    )
+    insertBoard.run("fresh-original", "fresh-owner", "Dashboard", "dashboard", "fresh-owner", changed)
+    insertBoard.run("fresh-secondary", "fresh-owner", "Secondary", "secondary", null, changed)
+    assert.throws(
+      () => appearance.prepare('UPDATE "Board" SET "originalOwnerId" = ? WHERE "id" = ?').run("missing-owner", "fresh-secondary"),
+      /CHECK constraint failed: Board_original_owner_check/
+    )
+    assert.throws(
+      () => insertBoard.run("duplicate-original", "fresh-owner", "Duplicate", "duplicate", "fresh-owner", changed),
+      /UNIQUE constraint failed: Board.originalOwnerId/
+    )
+    assert.throws(
+      () => insertBoard.run("duplicate-name", "fresh-owner", "Secondary", "secondary", null, changed),
+      /UNIQUE constraint failed: Board.ownerId, Board.nameKey/
+    )
+    assert.throws(
+      () => insertBoard.run("missing-owner-board", "missing-owner", "Missing", "missing", null, changed),
+      /FOREIGN KEY constraint failed/
+    )
+    assert.throws(
+      () => appearance.prepare('UPDATE "Board" SET "appearanceKind" = ? WHERE "id" = ?').run("solid", "fresh-secondary"),
+      /CHECK constraint failed: Board_appearance_shape/
+    )
+    assert.throws(
+      () => appearance.prepare('UPDATE "Board" SET "appearanceKind" = ?, "appearanceAssetId" = ? WHERE "id" = ?').run("image", "missing-asset", "fresh-secondary"),
+      /FOREIGN KEY constraint failed/
+    )
+    const indexes = appearance.pragma('index_list("Board")') as Array<{ name: string; unique: number }>
+    for (const [name, columns] of [
+      ["Board_originalOwnerId_key", ["originalOwnerId"]],
+      ["Board_ownerId_id_key", ["ownerId", "id"]],
+      ["Board_ownerId_nameKey_key", ["ownerId", "nameKey"]],
+    ] as const) {
+      assert.equal(indexes.find(index => index.name === name)?.unique, 1)
+      assert.deepEqual((appearance.pragma(`index_info("${name}")`) as Array<{ name: string }>).map(column => column.name), columns)
+    }
+    const foreignKeys = appearance.pragma('foreign_key_list("Board")') as Array<{ from: string; table: string; to: string; on_update: string; on_delete: string }>
+    assert.deepEqual(foreignKeys.map(key => [key.from, key.table, key.to, key.on_update, key.on_delete]).sort(), [
+      ["appearanceAssetId", "ImageAsset", "id", "CASCADE", "NO ACTION"],
+      ["ownerId", "User", "id", "CASCADE", "CASCADE"],
+    ])
+    assert.deepEqual(appearance.pragma("foreign_key_check"), [])
+  } finally {
+    appearance.close()
+  }
   console.log(
-    "Board migration preserved historic records and enforced board ownership"
+    "Board migrations preserved historic records, grants, and layouts and enforced ownership through appearance migration"
   )
 } finally {
   await rm(fixture, { recursive: true, force: true })

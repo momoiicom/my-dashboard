@@ -32,6 +32,14 @@ The browser suite writes its original captures to `.e2e/appearance/`. The copies
 
 The feature commit `dc70deb8806a39e4752ed77577f21fd2eccce444` was fast-forwarded into the primary checkout. Independent checks there passed Prisma client generation, the Webpack production build (including TypeScript), the appearance HTTP suite, the existing sharing HTTP suite, and lint with only the existing image warning. The rendered desktop, mobile, uploaded-image and second-board slideshow captures were also inspected. No production database was migrated.
 
+## Appearance migration regression
+
+The pre-PR review found that rebuilding `Board` dropped its existing original-owner check. The migration now preserves `Board_original_owner_check`, which requires `originalOwnerId` to be null or equal to `ownerId`.
+
+The migration regression runs Prisma deployments in three stages. It creates legacy records, applies boards and sharing, seeds a grant and a private card layout, then applies appearance and all subsequent migrations. It compares complete existing board, card, token, grant and layout records after the final deployment and checks default appearance values. It rejects mismatched original owners on insert and update, accepts valid original and secondary boards, checks the three retained unique indexes, and verifies both Board foreign keys and the appearance-shape constraint.
+
+With Node 22.23.3, `node --import tsx scripts/boards-migration.ts` failed before the fix with `Missing expected exception: The final migration must reject an original board owned by another user`. After restoring the SQL check, it passed with `Board migrations preserved historic records, grants, and layouts and enforced ownership through appearance migration`. Focused ESLint and `git diff --check` also passed. These checks used temporary SQLite databases and did not apply production migrations.
+
 ## Deployment checks still needed
 
 The signed sessions do not prove a real Google OAuth callback. The tests do not reach a live Cloudflare edge. Before deployment, put `APPEARANCE_STORAGE_DIR` on persistent storage, back up that directory with the SQLite database, run `appearance:cleanup` on a schedule, and verify that the CDN honors `private, no-store` and never serves a revoked image from a shared cache. No Cloudflare configuration or production storage was changed here.
