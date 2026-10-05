@@ -49,6 +49,12 @@ The integrated follow-up passed the production build, migration query plan and p
 
 PR handoff also checks that the Codex review summary is completed on the latest head and re-reads unresolved threads after that completion. The PR watcher can report `READY` while a cloud review is still running; CI and mergeability alone do not establish that the review has finished.
 
+## CI fixture polling regression
+
+During PR 12 verification, one CI run timed out waiting for a synthetic former-email row while the parallel run passed. A real viewer cards fetch immediately after inserting the duplicate pending grant reproduced the same Chromium failure. The fetch correctly reconciled the grants before the author dialog read them.
+
+The browser suite now opens both viewer boards after the author-side changed-email, duplicate merge, synthetic revocation and reinvitation checks finish. A blank-page precondition detects early viewer navigation. All later live polling, viewer controls, private layout and real revocation checks remain. The complete `node --import tsx scripts/sharing-smoke.ts --browser` run and focused ESLint pass; the rendered Sharing dialog was inspected. The reproduction instrumentation was removed. Application reconciliation is unchanged, and the checks use a temporary database and loopback server.
+
 ## Runtime finding and resolution
 
 The expanded sharing browser suite reproduced a native server abort on Node.js 24.21.0 and the bundled 24.19.0 runtime. The fatal error was `node::RemoveEnvironmentCleanupHook` asserting `(env) != nullptr`, called from the `better-sqlite3` native `Statement` destructor during garbage collection. The browser then reported connection refused. This was independent of the application’s delayed-response assertions.
