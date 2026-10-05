@@ -57,17 +57,10 @@ try {
   const currentCards = async (page: Page) => (await (await page.request.get(cardsUrl)).json()).cards as Array<{ id: string; x: number; y: number; width: number; height: number }>
   const sourceGeometry = await currentCards(author)
   const path = `/boards/${boardId}`
-  await Promise.all([author.goto(path), first.goto(path), second.goto(path)])
-  await Promise.all([closeOnboarding(author), closeOnboarding(first), closeOnboarding(second)])
-  await first.getByRole("heading", { name: "Shared browser card" }).waitFor()
-  await second.getByRole("heading", { name: "Shared browser card" }).waitFor()
-  await first.getByText("Customize my layout", { exact: true }).waitFor()
-  await second.getByText("Customize my layout", { exact: true }).waitFor()
+  await author.goto(path)
+  await closeOnboarding(author)
   await author.locator('summary[aria-label="Board options"]').click()
   await author.getByRole("button", { name: "Sharing" }).waitFor()
-  assert.equal(await first.locator('summary[aria-label="Board options"]').count(), 0)
-  assert.equal(await first.getByRole("button", { name: "Sharing" }).count(), 0, "Viewer cannot see sharing management")
-  assert.equal(await first.getByText("Connect your bot", { exact: true }).count(), 0, "Viewer cannot see author bot controls")
   await author.getByRole("button", { name: "Sharing", exact: true }).click()
   const sharing = author.getByRole("dialog")
   await sharing.getByText(firstEmail, { exact: true }).waitFor()
@@ -80,9 +73,6 @@ try {
   await author.getByRole("menuitem", { name: "Shares", exact: true }).click()
   await sharing.getByText(firstEmail, { exact: true }).waitFor()
   await sharing.getByRole("button", { name: "Close", exact: true }).click()
-  await first.getByRole("button", { name: "Account menu for First" }).click()
-  assert.equal(await first.getByRole("menuitem", { name: "Shares", exact: true }).count(), 0, "Only the author sees Shares in the account menu")
-  await first.keyboard.press("Escape")
   for (const method of ["GET", "POST", "DELETE"] as const) {
     let releaseRequest!: () => void
     let requestArrived!: () => void
@@ -119,6 +109,9 @@ try {
       releaseRequest()
       await author.unroute(sharesRoute)
     }
+  }
+  for (const viewer of [first, second]) {
+    assert.equal(viewer.url(), "about:blank", "Viewer polling must not reconcile synthetic sharing fixtures before the author assertions")
   }
   const fixturePath = process.env.E2E_FIXTURE_DATABASE_PATH
   assert(fixturePath, "The sharing harness must supply its temporary database for the changed-email fixture")
@@ -170,8 +163,18 @@ try {
   await sharing.getByRole("button", { name: "Add access" }).click()
   await sharing.getByText(firstEmail, { exact: true }).waitFor()
   await sharing.getByRole("button", { name: "Close", exact: true }).click()
-  await first.goto(path)
+  await Promise.all([first.goto(path), second.goto(path)])
+  await Promise.all([closeOnboarding(first), closeOnboarding(second)])
   await first.getByRole("heading", { name: "Shared browser card" }).waitFor()
+  await second.getByRole("heading", { name: "Shared browser card" }).waitFor()
+  await first.getByText("Customize my layout", { exact: true }).waitFor()
+  await second.getByText("Customize my layout", { exact: true }).waitFor()
+  assert.equal(await first.locator('summary[aria-label="Board options"]').count(), 0)
+  assert.equal(await first.getByRole("button", { name: "Sharing" }).count(), 0, "Viewer cannot see sharing management")
+  assert.equal(await first.getByText("Connect your bot", { exact: true }).count(), 0, "Viewer cannot see author bot controls")
+  await first.getByRole("button", { name: "Account menu for First" }).click()
+  assert.equal(await first.getByRole("menuitem", { name: "Shares", exact: true }).count(), 0, "Only the author sees Shares in the account menu")
+  await first.keyboard.press("Escape")
   await first.getByRole("button", { name: "Customize my layout" }).click()
   const handle = first.getByRole("button", { name: /Move or resize Shared browser card/ })
   await handle.press("ArrowRight")
