@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 import { chromium, type BrowserContext, type Page } from "playwright"
+import type { AppearanceState } from "../lib/appearance"
 
 const base = process.env.E2E_BASE_URL
 const boardId = process.env.E2E_BOARD_ID
@@ -125,6 +126,13 @@ try {
   await dialog.getByRole("textbox", { name: "Accent hex color" }).fill("#f5e6be")
   await dialog.getByRole("button", { name: "Save appearance" }).click()
   await dialog.waitFor({ state: "hidden" })
+  const currentViewerAppearance = await (await second.request.get(`/api/boards/${boardId}/appearance`)).json() as AppearanceState
+  const viewerSnapshot = await second.waitForResponse(async response => {
+    if (!response.url().endsWith(`/api/boards/${boardId}/cards`) || response.request().method() !== "GET" || !response.ok()) return false
+    const snapshot = await response.json() as { appearance: AppearanceState }
+    return snapshot.appearance.token === currentViewerAppearance.token
+  })
+  await viewerSnapshot.finished()
   await second.waitForFunction(() => getComputedStyle(document.querySelector(".dashboard-shell")!).backgroundColor === "rgb(17, 34, 51)", undefined, { timeout: 12000 })
   assert.match(await boardBackground(first), /appearance\/assets/, "First viewer keeps a personal image")
   await first.screenshot({ path: resolve(screenshotDir, "viewer-personal-desktop.png"), fullPage: true })
@@ -133,7 +141,10 @@ try {
   await dialog.getByRole("checkbox", { name: /Use author's accent/ }).uncheck()
   await dialog.getByRole("textbox", { name: "Accent hex color" }).fill("#ffcc00")
   await second.screenshot({ path: resolve(screenshotDir, "viewer-preview-mobile.png"), fullPage: true })
+  const viewerSave = second.waitForResponse(response => response.url().endsWith(`/api/boards/${boardId}/appearance`) && response.request().method() === "PUT")
   await dialog.getByRole("button", { name: "Save appearance" }).click()
+  const viewerResponse = await viewerSave
+  assert.equal(viewerResponse.status(), 200, "Saving a viewer override after the latest appearance snapshot must succeed")
   await dialog.waitFor({ state: "hidden" })
   await second.reload()
   await second.getByRole("heading", { name: "Revenue" }).waitFor()

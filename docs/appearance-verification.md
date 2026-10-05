@@ -40,6 +40,16 @@ The migration regression runs Prisma deployments in three stages. It creates leg
 
 With Node 22.23.3, `node --import tsx scripts/boards-migration.ts` failed before the fix with `Missing expected exception: The final migration must reject an original board owned by another user`. After restoring the SQL check, it passed with `Board migrations preserved historic records, grants, and layouts and enforced ownership through appearance migration`. Focused ESLint and `git diff --check` also passed. These checks used temporary SQLite databases and did not apply production migrations.
 
+## CI browser synchronization regression
+
+The first branch CI run failed while waiting for the second viewer's Settings dialog to close after Save. The test waited for the shared background to become `#112233`, but the author then saved two more accent changes without changing that background. A viewer could satisfy the color assertion while still holding an older appearance revision.
+
+A local Chromium reproduction stopped the second viewer's cards polls after it received the first solid background. The author saved black and then the original gold accent. The existing background assertion passed, but the viewer Save returned HTTP 409 with `Appearance changed on another device`. This confirms that the app correctly rejected a stale save.
+
+The browser test now reads the current viewer appearance revision and waits for the viewer's own cards poll to return that revision before opening Settings. It also asserts HTTP 200 for the viewer Save. The existing conflict and explicit reapply checks remain intact.
+
+With the same deliberately delayed viewer polls released at the new synchronization point, the complete appearance API and browser suite passed on Node 22.23.3. The run used a temporary database, a temporary upload directory, and a loopback production server. Focused ESLint, TypeScript, and `git diff --check` passed. The reproduction instrumentation was removed, and a second complete `npm run test:e2e:appearance` run passed against the final script.
+
 ## Deployment checks still needed
 
 The signed sessions do not prove a real Google OAuth callback. The tests do not reach a live Cloudflare edge. Before deployment, put `APPEARANCE_STORAGE_DIR` on persistent storage, back up that directory with the SQLite database, run `appearance:cleanup` on a schedule, and verify that the CDN honors `private, no-store` and never serves a revoked image from a shared cache. No Cloudflare configuration or production storage was changed here.
