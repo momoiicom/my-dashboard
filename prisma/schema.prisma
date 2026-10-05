@@ -79,6 +79,10 @@ model Board {
   appearanceColor String?
   appearanceAssetId String?
   appearanceAccent String @default("#0c66e4")
+  appearanceMainToolbar String?
+  appearanceBoardToolbar String?
+  appearanceCard String?
+  appearanceButton String?
   appearanceRevision Int @default(0)
   appearanceAsset ImageAsset? @relation("AuthorAppearance", fields: [appearanceAssetId], references: [id], onDelete: NoAction)
   appearances ViewerAppearance[]
@@ -167,6 +171,10 @@ model ViewerAppearance {
   backgroundColor String?
   backgroundAssetId String?
   accent String?
+  mainToolbar String?
+  boardToolbar String?
+  card String?
+  button String?
   revision Int @default(0)
   board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

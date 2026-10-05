@@ -76,6 +76,13 @@ try {
   await sharing.getByText("pending-browser@example.test", { exact: true }).waitFor()
   await author.screenshot({ path: resolve(screenshotDir, "sharing-dialog.png"), fullPage: true })
   await sharing.getByRole("button", { name: "Close", exact: true }).click()
+  await author.getByRole("button", { name: "Account menu for Author" }).click()
+  await author.getByRole("menuitem", { name: "Shares", exact: true }).click()
+  await sharing.getByText(firstEmail, { exact: true }).waitFor()
+  await sharing.getByRole("button", { name: "Close", exact: true }).click()
+  await first.getByRole("button", { name: "Account menu for First" }).click()
+  assert.equal(await first.getByRole("menuitem", { name: "Shares", exact: true }).count(), 0, "Only the author sees Shares in the account menu")
+  await first.keyboard.press("Escape")
   for (const method of ["GET", "POST", "DELETE"] as const) {
     let releaseRequest!: () => void
     let requestArrived!: () => void

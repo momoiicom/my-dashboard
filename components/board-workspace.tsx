@@ -210,7 +210,7 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
     <div ref={host} className="board-workspace" data-presenting={active}>
       {children}
       {error && !active && <div role="alert" className="board-workspace-error">{error}<button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
-      {!active && (selected ? <Dashboard key={selected.board.id} boardId={selected.board.id} role={selected.board.role} initialLayoutToken={selected.layoutToken} onAccessRemoved={accessRemoved} appearance={appearanceBoardId === selected.board.id && appearancePreview ? appearancePreview.appearance : selected.appearance.effective} previewUrl={appearanceBoardId === selected.board.id ? appearancePreview?.previewUrl : undefined} onSettings={() => setAppearanceBoardId(selected.board.id)} onAppearanceSnapshot={onAppearanceSnapshot} getAppearanceEpoch={getAppearanceEpoch} initialCards={selected.cards} boards={workspace.boards} name={name} image={image} localUiMode={localUiMode} boardToolbar={boardToolbar} initialConnectOpen={onboardingBoardId === selected.board.id} onConnectClosed={() => setOnboardingBoardId(null)} onPlay={cards => {
+      {!active && (selected ? <Dashboard key={selected.board.id} boardId={selected.board.id} role={selected.board.role} initialLayoutToken={selected.layoutToken} onAccessRemoved={accessRemoved} appearance={appearanceBoardId === selected.board.id && appearancePreview ? appearancePreview.appearance : selected.appearance.effective} previewUrl={appearanceBoardId === selected.board.id ? appearancePreview?.previewUrl : undefined} onSettings={() => setAppearanceBoardId(selected.board.id)} onSharing={selected.board.role === "author" ? () => setSharingBoard(selected.board) : undefined} onAppearanceSnapshot={onAppearanceSnapshot} getAppearanceEpoch={getAppearanceEpoch} initialCards={selected.cards} boards={workspace.boards} name={name} image={image} localUiMode={localUiMode} boardToolbar={boardToolbar} initialConnectOpen={onboardingBoardId === selected.board.id} onConnectClosed={() => setOnboardingBoardId(null)} onPlay={cards => {
         setError("")
         expectedPath.current = pathname
         presentation.start({ ...selected, cards }, workspace.boards.map(board => board.id))
@@ -223,6 +223,7 @@ export function BoardWorkspace({ initialWorkspace, name, image, localUiMode, chi
       setSnapshot(current => current?.board.id === selected.board.id ? { ...current, appearance } : current)
       setAppearanceBoardId(null)
       setAppearancePreview(null)
+      router.refresh()
     }} onClose={() => { appearanceEpoch.current++; setAppearanceBoardId(null); setAppearancePreview(null) }} />}
     <Dialog open={dialog !== null} onOpenChange={open => { if (!open && !pending) setDialog(null) }}>
       <DialogContent><form onSubmit={saveBoard} className="board-dialog-form"><DialogHeader><DialogTitle>{dialog?.kind === "create" ? "Create board" : dialog?.kind === "rename" ? "Rename board" : "Delete board?"}</DialogTitle><DialogDescription>{dialog?.kind === "delete" ? `“${dialog.board.name}” and all cards on this board will be permanently deleted.` : "Give this board a name you and your bots can recognize."}</DialogDescription></DialogHeader>

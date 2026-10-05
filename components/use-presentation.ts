@@ -57,6 +57,8 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
     let checkingId: string | null = null
     let ready: BoardSnapshot | null = null
     const requests = new Set<AbortController>()
+    const targetRequests = new Set<AbortController>()
+    let targetGeneration = 0
     const live = () => !retired && generation.current === run.id
     const reduce = (event: PresentationEvent) => { current = presentationReducer(current, event) }
     const publish = () => { if (live()) setState(current) }
@@ -98,11 +100,13 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
       }
     }
     const requestTarget = async (id: string, final: boolean) => {
+      const version = targetGeneration
       const controller = new AbortController()
       requests.add(controller)
+      targetRequests.add(controller)
       try {
         const snapshot = await fetchBoard(id, controller.signal)
-        if (!live() || nextBoardId(current) !== id) return
+        if (!live() || version !== targetGeneration || nextBoardId(current) !== id) return
         if (!snapshot) {
           reduce({ type: "deleted", runId: run.id, boardId: id })
           if (prefetchedId === id) prefetchedId = null
@@ -110,10 +114,11 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
         } else if (final && current.phase.kind === "waiting" && nextBoardId(current) === id) ready = snapshot
         else if (!final) reduce({ type: "prefetch", runId: run.id, snapshot })
       } catch (error) {
-        if (live() && nextBoardId(current) === id) stop(true, error instanceof Error ? error.message : "Could not load board.")
+        if (live() && version === targetGeneration && !controller.signal.aborted && nextBoardId(current) === id) stop(true, error instanceof Error ? error.message : "Could not load board.")
       } finally {
         requests.delete(controller)
-        if (final && checkingId === id) checkingId = null
+        targetRequests.delete(controller)
+        if (version === targetGeneration && final && checkingId === id) checkingId = null
         if (live()) pump()
       }
     }
@@ -129,7 +134,7 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
         prefetchedId = nextId
         void requestTarget(nextId, false)
       }
-      if (current.phase.kind === "waiting" && nextId && !current.hidden) {
+      if (current.phase.kind === "waiting" && nextId && !current.hidden && (!current.paused || current.phase.manual)) {
         if (ready?.board.id === nextId) {
           const previous = current.phase.current.board.id
           reduce({ type: "ready", runId: run.id, snapshot: ready, reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches })
@@ -145,7 +150,7 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
       publish()
       if (current.hidden) return
       const phase = current.phase
-      const phaseRemaining = phase.kind === "sliding" || (phase.kind === "dwelling" && nextBoardId(current)) ? phase.remainingMs : Infinity
+      const phaseRemaining = phase.kind === "sliding" || (phase.kind === "dwelling" && !current.paused && nextBoardId(current)) ? phase.remainingMs : Infinity
       const controlTime = !stopFocused.current && controlsRemaining > 0 ? controlsRemaining : Infinity
       const delay = Math.min(phaseRemaining, controlTime)
       if (Number.isFinite(delay)) timer = setTimeout(pump, Math.max(1, delay))
@@ -170,6 +175,36 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
     }
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); stop() }
+      else if (event.key === " ") {
+        if (event.altKey || event.ctrlKey || event.metaKey) return
+        event.preventDefault()
+        if (!live() || current.hidden || event.repeat) return
+        elapsed()
+        reduce({ type: "pause", runId: run.id, paused: !current.paused })
+        ready = null
+        controlsRemaining = CONTROLS_MS
+        pump()
+      }
+      else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        if (event.altKey || event.ctrlKey || event.metaKey) return
+        event.preventDefault()
+        if (!live() || current.hidden || event.repeat) return
+        if (current.phase.kind === "sliding") {
+          reduce({ type: "pause", runId: run.id, paused: true })
+          controlsRemaining = CONTROLS_MS
+          pump()
+          return
+        }
+        targetGeneration++
+        targetRequests.forEach(request => request.abort())
+        prefetchedId = null
+        checkingId = null
+        ready = null
+        reduce({ type: "navigate", runId: run.id, direction: event.key === "ArrowLeft" ? -1 : 1 })
+        clock = performance.now()
+        controlsRemaining = CONTROLS_MS
+        pump()
+      }
       else reveal()
     }
     const poll = async () => {
@@ -198,14 +233,14 @@ export function usePresentation({ host, onStop, onAdvance, fetchBoard = loadBoar
     }
     document.addEventListener("visibilitychange", visibility)
     document.addEventListener("fullscreenchange", fullscreen)
-    document.addEventListener("keydown", keyboard)
+    document.addEventListener("keydown", keyboard, true)
     pump()
     pollTimer = setTimeout(poll, 3000)
     return () => {
       cancel()
       document.removeEventListener("visibilitychange", visibility)
       document.removeEventListener("fullscreenchange", fullscreen)
-      document.removeEventListener("keydown", keyboard)
+      document.removeEventListener("keydown", keyboard, true)
       if (document.fullscreenElement === fullscreenHost) void document.exitFullscreen().catch(() => {})
     }
   }, [run, host, fetchBoard])
