@@ -26,7 +26,11 @@ The browser suite checks Settings for the selected board, local object URL previ
 - [Viewer personal desktop board](images/appearance/viewer-personal-desktop.png), [inherited mobile board](images/appearance/viewer-inherited-mobile.png), [mobile settings preview](images/appearance/viewer-preview-mobile.png).
 - [First slideshow board](images/appearance/slideshow-first-desktop.png), [second slideshow board](images/appearance/slideshow-second-desktop.png), [mobile slideshow](images/appearance/slideshow-mobile.png).
 
-The original captures remain in `.e2e/appearance/` in the implementation checkout. The copies above are kept with the repository for review.
+The browser suite writes its original captures to `.e2e/appearance/`. The copies above are kept with the repository for review.
+
+## Integration verification
+
+The feature commit `dc70deb8806a39e4752ed77577f21fd2eccce444` was fast-forwarded into the primary checkout. Independent checks there passed Prisma client generation, the Webpack production build (including TypeScript), the appearance HTTP suite, the existing sharing HTTP suite, and lint with only the existing image warning. The rendered desktop, mobile, uploaded-image and second-board slideshow captures were also inspected. No production database was migrated.
 
 ## Deployment checks still needed
 
