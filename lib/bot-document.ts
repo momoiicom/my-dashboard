@@ -658,6 +658,12 @@ export function getBotCapabilities() {
       defaultDestination: "original board",
       responseBoardField: "card.boardId",
     },
+    notifications: {
+      updateQuery: "notify=true",
+      default: "silent",
+      eligibility: "changed existing card only",
+      receipt: "push-service acceptance, not device display",
+    },
     rules: [
       "Discover a requested board by name or ID before creating a card. Names ignore capitalization and surrounding spaces. Ask the user when the requested board is missing.",
       "New card keys use the boardId query or the original board. Keys are owner-wide; use distinct keys for separate cards.",

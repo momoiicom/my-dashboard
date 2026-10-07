@@ -16,7 +16,9 @@ export async function proxy(request: NextRequest) {
     path.startsWith("/api/auth/") ||
     path.startsWith("/_next/static/") ||
     path === "/_next/image" ||
-    path === "/favicon.ico"
+    path === "/favicon.ico" ||
+    path === "/sw.js" ||
+    path === "/manifest.webmanifest"
   )
     return NextResponse.next()
 

@@ -35,6 +35,7 @@ jobs:
       - run: npm run test:sharing:api
       - run: npm run test:appearance:api
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:push:browser
       - run: npm run test:e2e
       - run: npm run test:e2e:boards
       - run: npm run test:e2e:sharing
