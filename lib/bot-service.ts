@@ -189,7 +189,7 @@ export async function putBotCard(
             select: cardSelect,
           })
           if (previous?.payload === payload)
-            return { card: serializeCard(previous), created: false }
+            return { card: serializeCard(previous), change: "unchanged" as const }
           if (previous) {
             const card = await tx.dashboardCard.update({
               where: { id: previous.id },
@@ -201,7 +201,7 @@ export async function putBotCard(
               },
               select: cardSelect,
             })
-            return { card: serializeCard(card), created: false }
+            return { card: serializeCard(card), change: "updated" as const }
           }
           if (
             initialBoardId !== undefined &&
@@ -229,7 +229,7 @@ export async function putBotCard(
             },
             select: cardSelect,
           })
-          return { card: serializeCard(card), created: true }
+          return { card: serializeCard(card), change: "created" as const }
         })
       )
     } catch (error) {

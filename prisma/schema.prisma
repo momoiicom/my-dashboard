@@ -23,6 +23,7 @@ model User {
   boards        Board[]
   cards         DashboardCard[]
   botToken      BotToken?
+  pushSubscriptions PushSubscription[]
   @@index([googleVerifiedEmail])
 }
 
@@ -197,4 +198,17 @@ model ImageAsset {
   personalReferences ViewerAppearance[] @relation("PersonalAppearance")
   @@index([boardId])
   @@index([createdAt])
+}
+
+model PushSubscription {
+  id String @id @default(cuid())
+  ownerId String
+  endpoint String @unique
+  p256dh String
+  auth String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
 }

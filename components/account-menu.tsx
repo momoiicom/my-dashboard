@@ -2,12 +2,13 @@
 
 import { useRef, useState } from "react"
 import { signOut } from "next-auth/react"
-import { ChevronDown, LogOut, Settings, Share2 } from "lucide-react"
+import { Bell, ChevronDown, LogOut, Settings, Share2 } from "lucide-react"
 import { DropdownMenu } from "radix-ui"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { appearanceTokens } from "@/components/appearance-surface"
 import type { Appearance } from "@/lib/appearance"
+import { cleanupPushOnSignOut, PushSettings } from "@/components/push-settings"
 
 type AccountMenuProps = {
   name: string
@@ -23,6 +24,7 @@ type AccountMenuProps = {
 
 export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPendingChange, onSettings, onSharing, appearance, boardId }: AccountMenuProps) {
   const [pending, setPending] = useState(false)
+  const [pushOpen, setPushOpen] = useState(false)
   const signingOut = useRef(false)
 
   const handleSignOut = () => {
@@ -30,7 +32,13 @@ export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPending
     signingOut.current = true
     setPending(true)
     onPendingChange(true)
-    void Promise.resolve().then(beforeSignOut).then(() => signOut({ callbackUrl: "/login" })).catch(() => {
+    void Promise.resolve().then(beforeSignOut).then(async () => {
+      await Promise.race([
+        cleanupPushOnSignOut().catch(() => undefined),
+        new Promise<void>(resolve => setTimeout(resolve, 4000)),
+      ])
+      return signOut({ callbackUrl: "/login" })
+    }).catch(() => {
       signingOut.current = false
       setPending(false)
       onPendingChange(false)
@@ -38,6 +46,7 @@ export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPending
   }
 
   return (
+    <>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <Button variant="ghost" className="dashboard-account-trigger" aria-label={`Account menu for ${name}`}>
@@ -52,6 +61,10 @@ export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPending
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="dashboard-account-menu" style={appearanceTokens(appearance, boardId)} align="end" sideOffset={6}>
           <DropdownMenu.Group>
+            {!localUiMode && <DropdownMenu.Item className="dashboard-account-menu-item" disabled={pending} onSelect={() => setPushOpen(true)}>
+              <Bell aria-hidden="true" />
+              <span>Notifications</span>
+            </DropdownMenu.Item>}
             {onSharing && <DropdownMenu.Item className="dashboard-account-menu-item" onSelect={onSharing}>
               <Share2 aria-hidden="true" />
               <span>Shares</span>
@@ -82,5 +95,7 @@ export function AccountMenu({ name, image, localUiMode, beforeSignOut, onPending
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+    {!localUiMode && <PushSettings open={pushOpen} onOpenChange={setPushOpen} />}
+    </>
   )
 }
